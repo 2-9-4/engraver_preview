@@ -3,6 +3,7 @@ import { defaultMachine, defaultProject, newOperation } from '../src/types';
 import { depthFromIntensity } from '../src/core/toolpaths';
 import { simulateSurface, sweepPath, toolHeightAtRadius } from '../src/core/simulate';
 import { generateGcode } from '../src/core/gcode';
+import { flatVectorGeometry } from '../src/core/vectorGeometry';
 import type { CompiledOperation } from '../src/types';
 
 describe('cutter geometry', () => {
@@ -109,5 +110,29 @@ describe('export boundary validation', () => {
       { ...example(1, 1, 1), operation: { ...op, diameter: NaN } })).toThrow('Cutter');
     expect(() => generateGcode(defaultProject, { ...defaultMachine, safeZ: Infinity },
       example(1, 1, 1))).toThrow('finite');
+  });
+});
+
+describe('SVG flat endmill swept geometry', () => {
+  it('puts the channel floor at the commanded depth with vertical side triangles', () => {
+    const op = newOperation({ mode: 'vector', tool: 'flat', diameter: 2, depth: 1.8 });
+    const project = { ...defaultProject, width: 20, height: 20 };
+    const geometry = flatVectorGeometry(project, {
+      operation: op, length: 8,
+      paths: [[{ x: 6, y: 10, depth: 1.8 }, { x: 14, y: 10, depth: 1.8 }]],
+    });
+    const floor = geometry.floor.getAttribute('position');
+    expect(floor.count).toBeGreaterThan(3);
+    for (let i = 0; i < floor.count; i++) expect(floor.getY(i)).toBeCloseTo(-1.8);
+    const walls = geometry.walls.getAttribute('position');
+    expect(walls.count).toBeGreaterThan(30);
+    for (let i = 0; i < walls.count; i += 6) {
+      // For each wall quad, the upper and lower vertices share EXACT x/z.
+      expect(walls.getX(i)).toBeCloseTo(walls.getX(i + 1));
+      expect(walls.getZ(i)).toBeCloseTo(walls.getZ(i + 1));
+      expect(walls.getY(i)).toBeCloseTo(0);
+      expect(walls.getY(i + 1)).toBeCloseTo(-1.8);
+    }
+    geometry.top.dispose(); geometry.floor.dispose(); geometry.walls.dispose();
   });
 });
