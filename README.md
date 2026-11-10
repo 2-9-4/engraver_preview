@@ -10,6 +10,7 @@ Requires Node 20.19+ or Node 22.12+.
 2. Run **npm run dev**
 3. Open the Vite URL shown in the console.
 4. Run **npm test** and **npm run build** for validation.
+5. Run **npx playwright install chromium** then **npm run test:e2e** for the browser smoke test.
 
 No server processing: uploaded artwork stays in your browser.
 
@@ -25,7 +26,7 @@ No server processing: uploaded artwork stays in your browser.
 - Interactive Three.js wood stock with orbit/pan/zoom.
 - G-code for Marlin, Klipper, LinuxCNC; manual spindle by default, optional configured M3/M5, safe Z, lower-left or centered XY zero, Z0 at stock top.
 - Export individual G-code operations or ZIP with separately numbered programs to avoid automatic tool-change ambiguity.
-- Nine geometric and exporter regression tests in GitHub Actions.
+- Ten geometric and exporter regression tests, plus a Playwright browser smoke test in GitHub Actions.
 
 ## Core architecture
 
