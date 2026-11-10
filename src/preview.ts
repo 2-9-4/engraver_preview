@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { Project } from './types';
+import type { CompiledOperation, Project } from './types';
+import { flatVectorGeometry } from './core/vectorGeometry';
+import { createStockMaterial, type StockMaterial } from './materials';
 import type { Surface } from './core/simulate';
 
 export class Preview3D {
@@ -16,15 +18,14 @@ export class Preview3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.6;
+    this.renderer.toneMapping = THREE.NoToneMapping;
     this.host.append(this.renderer.domElement);
     this.scene.background = new THREE.Color('#171e25');
-    this.scene.add(new THREE.HemisphereLight(0xe7f0ff, 0x44301f, 2.0));
-    const key = new THREE.DirectionalLight(0xffe7c1, 3.2);
+    this.scene.add(new THREE.HemisphereLight(0xf5f3ed, 0x514337, 1.15));
+    const key = new THREE.DirectionalLight(0xfff5e8, 2.0);
     key.position.set(-90, 150, 70);
     this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0x9cc7e2, 1.4);
+    const rim = new THREE.DirectionalLight(0xb7c6d0, 0.6);
     rim.position.set(70, 55, -90);
     this.scene.add(rim);
     const grid = new THREE.GridHelper(400, 20, 0x35424b, 0x2b3740);
@@ -54,7 +55,7 @@ export class Preview3D {
     this.camera.updateProjectionMatrix();
   }
 
-  setSurface(project: Project, surface: Surface): void {
+  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf'): void {
     if (this.model) {
       this.scene.remove(this.model);
       this.model.traverse(obj => {
@@ -66,9 +67,20 @@ export class Preview3D {
       });
     }
     this.model = new THREE.Group();
+    const material = createStockMaterial(stock);
+    const sideMaterial = createStockMaterial(stock, true);
+    // SVG flat-endmill engravings are exact cutter-swept polygons with explicit
+    // vertical walls, not a sampled heightfield. The cutter circumference alone
+    // is tessellated, with <= 0.06 mm nominal chord spacing.
+    const exact = compiled.length === 1 && compiled[0]!.operation.mode === 'vector' && compiled[0]!.operation.tool === 'flat'
+      ? flatVectorGeometry(project, compiled[0]!) : null;
+    if (exact) {
+      for (const geometry of [exact.top, exact.floor]) this.model.add(new THREE.Mesh(geometry, material));
+      this.model.add(new THREE.Mesh(exact.walls, sideMaterial));
+    }
     const w = surface.width, h = surface.height, stride = w + 1;
     const verts = new Float32Array(stride * (h + 1) * 3);
-    const colors = new Float32Array(verts.length);
+
     const topIndices: number[] = [];
     for (let y = 0; y <= h; y++) for (let x = 0; x <= w; x++) {
       const idx = y * stride + x;
@@ -76,12 +88,7 @@ export class Preview3D {
       verts[3 * idx] = project.width * (x / w - 0.5);
       verts[3 * idx + 1] = depth;
       verts[3 * idx + 2] = project.height * (0.5 - y / h);
-      const grain = Math.sin(y * 0.21 + Math.sin(x * 0.045) * 1.4) * 0.025;
-      const cut = Math.max(0, Math.min(1, -depth / 3));
-      const tint = 1 + grain - cut * 0.15;
-      colors[3 * idx] = 0.76 * tint;
-      colors[3 * idx + 1] = 0.51 * tint;
-      colors[3 * idx + 2] = 0.30 * tint;
+
       if (x < w && y < h) {
         const a = idx, b = idx + 1, c = idx + stride, d = c + 1;
         topIndices.push(a, b, c, b, d, c);
@@ -89,11 +96,17 @@ export class Preview3D {
     }
     const top = new THREE.BufferGeometry();
     top.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    top.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
     top.setIndex(topIndices);
     top.computeVertexNormals();
-    const topMesh = new THREE.Mesh(top, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0, side: THREE.DoubleSide }));
-    this.model.add(topMesh);
+    if (!exact) {
+      // Flat shading prevents normal interpolation from disguising heightfield
+      // limitations. Non-flat tools and raster inputs still use this solver.
+      const topMesh = new THREE.Mesh(top, material);
+      this.model.add(topMesh);
+    } else {
+      top.dispose();
+    }
 
     const sideVerts: number[] = [];
     const sideIndices: number[] = [];
@@ -115,17 +128,16 @@ export class Preview3D {
       sideGeo.setAttribute('position', new THREE.Float32BufferAttribute(sideVerts, 3));
       sideGeo.setIndex(sideIndices);
       sideGeo.computeVertexNormals();
-      this.model.add(new THREE.Mesh(sideGeo, new THREE.MeshStandardMaterial({ color: '#9a6b40', roughness: 0.95, side: THREE.DoubleSide })));
+      this.model.add(new THREE.Mesh(sideGeo, sideMaterial));
     }
     const base = new THREE.Mesh(
       new THREE.PlaneGeometry(project.width, project.height),
-      new THREE.MeshStandardMaterial({ color: '#8e633e', roughness: 1, side: THREE.DoubleSide }),
+      sideMaterial,
     );
     base.rotation.x = -Math.PI / 2;
     base.position.y = -project.thickness;
     this.model.add(base);
-    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(top, 40), new THREE.LineBasicMaterial({ color: 0x3d2a18, transparent: true, opacity: 0.3 }));
-    this.model.add(edge);
+
     this.scene.add(this.model);
     this.controls.target.set(0, -project.thickness * 0.25, 0);
     this.controls.update();

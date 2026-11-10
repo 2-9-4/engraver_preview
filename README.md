@@ -23,7 +23,8 @@ No server processing: uploaded artwork stays in your browser.
 - Raster scanlines with per-position variable negative Z; threshold, gamma, stepover, max depth, step-down, feeds.
 - SVG stroke centerline geometry extraction for path, circle, ellipse, line, polyline, polygon and rectangle (including nested transforms and per-stroke color).
 - V-bits with included angle, ball endmills, flat endmills; actual cutter profiles swept along tool-center paths into a 3D heightfield.
-- Interactive Three.js wood stock with orbit/pan/zoom.
+- Interactive Three.js wood stock with orbit/pan/zoom, flat (non-smoothed) lighting, procedural MDF fiber, plywood wood grain and 1.5 mm exposed plies, or a dark face layer over pale color-core material.
+- Single-operation, constant-depth SVG flat-endmill paths rendered as polygon-unioned cutter sweeps with true vertical walls and flat floors. Circular cutter edges are finely tessellated (~0.06 mm arc intervals); this bypasses the heightfield for that case.
 - G-code for Marlin, Klipper, LinuxCNC; manual spindle by default, optional configured M3/M5, safe Z, lower-left or centered XY zero, Z0 at stock top.
 - Export individual G-code operations or ZIP with separately numbered programs to avoid automatic tool-change ambiguity.
 - Ten geometric and exporter regression tests, plus a Playwright browser smoke test in GitHub Actions.
@@ -50,4 +51,4 @@ Negative Z cuts beneath the selected stock-top Z0; units are mm, feed rates are 
 
 This is **experimental CAM**, not safety-validated CNC software. Independently inspect G-code and air-cut before machining. Confirm cutter geometry, feeds/speeds, spindle macros, XY/Z origin, clamps, travel limits and workpiece thickness. No stock-fixture collision checking, spindle ramp handling, pocket clearing, adaptive roughing, automatic tool change, or tool deflection model.
 
-SVG centerline tracing follows explicit **strokes**, not outline pockets for fills or text; filled artwork can be engraved by raster. Stroke widths are not automatically converted into variable V-carve depth. Complex SVG filters and external references may be sanitized away. The heightfield is an approximation whose display resolution may under-resolve small features. Raster toolpaths may be large and are limited to 750k samples per operation.
+SVG centerline tracing follows explicit **strokes**, not outline pockets for fills or text; filled artwork can be engraved by raster. Stroke widths are not automatically converted into variable V-carve depth. Complex SVG filters and external references may be sanitized away. Raster operations, V-bits, ball-nose cutters, and combined/mixed-depth vector operations still use an approximate sampled heightfield. SVG flat-endmill geometry is currently the precise path-sweep mode; it is not a general-purpose exact solid-model Boolean engine. Flat-endmill cutter circles are polygonal approximations at approximately 0.06 mm arc intervals. Material finishes are procedural visualizations, not physically measured plywood, fiberboard or coating properties. Raster toolpaths may be large and are limited to 750k samples per operation.
