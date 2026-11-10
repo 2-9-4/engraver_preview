@@ -1,4 +1,4 @@
-import { cutterProfileAtDistance, cutterSurfaceRadius, distanceAt } from '../src/curvedPreview';
+import { buildCurvedStockGeometry, cutterProfileAtDistance, cutterSurfaceRadius, distanceAt } from '../src/curvedPreview';
 import { CubicBezierCurve, EllipseCurve, LineCurve, Vector2 } from 'three';
 import { nativeStrokeToolpaths } from '../src/core/nativeCurves';
 import { describe, expect, it } from 'vitest';
@@ -217,5 +217,93 @@ describe('native SVG curved cutter preview', () => {
   it('samples the physical display distance field bilinearly', () => {
     const map = { width: 2, height: 2, mmPerPixel: 1, distances: new Float32Array([0, 2, 2, 4]) };
     expect(distanceAt(map, 1, 1)).toBeCloseTo(2);
+  });
+});
+
+
+describe('watertight V-bit and ball-nose stock geometry', () => {
+  const project = { ...defaultProject, width: 60, height: 60, thickness: 12 };
+
+  // Precisely modeled closed square centerline. This distance data is just
+  // display input; the manifold checks apply to the actual constructed mesh.
+  const segmentDistance = (x: number, y: number, ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+  };
+  const size = 481;
+  const sampleStep = project.width / (size - 1);
+  const distances = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const px = x * sampleStep, py = y * sampleStep;
+    distances[y * size + x] = Math.min(
+      segmentDistance(px, py, 20, 20, 40, 20),
+      segmentDistance(px, py, 40, 20, 40, 40),
+      segmentDistance(px, py, 40, 40, 20, 40),
+      segmentDistance(px, py, 20, 40, 20, 20),
+    );
+  }
+  const field = { width: size, height: size, mmPerPixel: sampleStep, distances };
+
+  const validateClosedSolid = (kind: 'vbit' | 'ball') => {
+    const op = newOperation({ mode: 'vector', tool: kind, angle: 60, diameter: 4, depth: 1 });
+    const geometry = buildCurvedStockGeometry(project, field, op, 1);
+    const positions = geometry.getAttribute('position');
+    const indices = geometry.getIndex()!;
+    const edgeIncidence = new Map<string, { count: number; balance: number }>();
+    const edge = (i: number, j: number) => {
+      const low = Math.min(i, j), high = Math.max(i, j);
+      const key = low + ':' + high;
+      const incidence = edgeIncidence.get(key) || { count: 0, balance: 0 };
+      incidence.count++;
+      incidence.balance += i === low ? 1 : -1;
+      edgeIncidence.set(key, incidence);
+    };
+    for (let t = 0; t < indices.count; t += 3) {
+      const a = indices.getX(t), b = indices.getX(t + 1), c = indices.getX(t + 2);
+      expect(a).not.toBe(b);
+      expect(b).not.toBe(c);
+      expect(c).not.toBe(a);
+      const ab = [positions.getX(b) - positions.getX(a),
+        positions.getY(b) - positions.getY(a),
+        positions.getZ(b) - positions.getZ(a)];
+      const ac = [positions.getX(c) - positions.getX(a),
+        positions.getY(c) - positions.getY(a),
+        positions.getZ(c) - positions.getZ(a)];
+      const cross = [
+        ab[1]! * ac[2]! - ab[2]! * ac[1]!,
+        ab[2]! * ac[0]! - ab[0]! * ac[2]!,
+        ab[0]! * ac[1]! - ab[1]! * ac[0]!,
+      ];
+      expect(Math.hypot(...cross)).toBeGreaterThan(1e-7);
+      edge(a, b); edge(b, c); edge(c, a);
+    }
+    // Every geometric edge is shared by two oppositely oriented triangles.
+    // No boundary edges, nonmanifold branches, duplicate coplanar faces, or
+    // disconnected stock surfaces.
+    for (const item of edgeIncidence.values()) {
+      expect(item.count).toBe(2);
+      expect(item.balance).toBe(0);
+    }
+    expect(geometry.groups).toHaveLength(2);
+    const top = geometry.groups[0]!;
+    const sides = geometry.groups[1]!;
+    expect(top.count).toBeGreaterThan(0);
+    expect(sides.start).toBe(top.count);
+    expect(sides.count).toBeGreaterThan(0);
+    // The square groove must be physically lower than its untouched island.
+    const stride = 61;
+    const at = (i: number, j: number) => positions.getY(j * stride + i);
+    expect(at(20, 30)).toBeLessThan(-0.8);
+    expect(at(30, 30)).toBeCloseTo(0, 5);
+    expect(at(5, 5)).toBeCloseTo(0, 5);
+    geometry.dispose();
+  };
+
+  it('builds a single closed, consistently wound V-bit block around a square', () => {
+    validateClosedSolid('vbit');
+  });
+  it('builds a single closed, consistently wound ball-nose block around a square', () => {
+    validateClosedSolid('ball');
   });
 });

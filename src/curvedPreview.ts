@@ -128,27 +128,94 @@ export function distanceAt(field: NativeDistanceField, x: number, y: number): nu
   return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
 }
 
-export function makeCurvedSurfaceMesh(
-  project: Project, field: NativeDistanceField, op: Operation, material: THREE.MeshStandardMaterial,
-  density = 6,
-): THREE.Mesh {
-  // Geometry tessellation is a display requirement, not an input SVG sample.
+/**
+ * Build a SINGLE indexed, closed stock surface: carved top + 4 perimeter walls
+ * + bottom. All faces share top boundary indices. No alpha masks, coplanar
+ * overlays, separate interior wall patches, or offset Z meshes.
+ *
+ * The top is a single-valued cutter-envelope approximation. The source curve
+ * is preserved separately; this grid is solely display tessellation.
+ */
+export function buildCurvedStockGeometry(
+  project: Project, field: NativeDistanceField, op: Operation, density = 6,
+): THREE.BufferGeometry {
+  if (!(project.width > 0 && project.height > 0 && project.thickness > 0)) {
+    throw new Error('Stock dimensions must be positive');
+  }
   const nx = Math.max(32, Math.min(CURVE_MESH_MAX, Math.ceil(project.width * density)));
   const ny = Math.max(32, Math.min(CURVE_MESH_MAX, Math.ceil(project.height * density)));
-  const geometry = new THREE.PlaneGeometry(project.width, project.height, nx, ny);
-  geometry.rotateX(-Math.PI / 2);
-  const attr = geometry.getAttribute('position');
-  for (let i = 0; i < attr.count; i++) {
-    const x = attr.getX(i) + project.width / 2;
-    const y = project.height / 2 - attr.getZ(i);
-    const distance = distanceAt(field, x, y);
-    attr.setY(i, Math.max(-project.thickness, cutterProfileAtDistance(distance, op)));
+  const stride = nx + 1;
+  const topVertexCount = stride * (ny + 1);
+  const vertices: number[] = new Array(topVertexCount * 3);
+  for (let j = 0; j <= ny; j++) {
+    const z = project.height * (j / ny - 0.5);
+    for (let i = 0; i <= nx; i++) {
+      const x = project.width * (i / nx - 0.5);
+      const physicalX = x + project.width / 2;
+      const physicalY = project.height / 2 - z;
+      const elevation = Math.max(-project.thickness,
+        cutterProfileAtDistance(distanceAt(field, physicalX, physicalY), op));
+      const index = 3 * (j * stride + i);
+      vertices[index] = x;
+      vertices[index + 1] = elevation;
+      vertices[index + 2] = z;
+    }
   }
-  attr.needsUpdate = true;
+
+  const topTriangles: number[] = [];
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const a = j * stride + i, b = a + 1, c = a + stride, d = c + 1;
+      // x cross z is -Y, so wind top triangles for +Y.
+      topTriangles.push(a, c, b, b, c, d);
+    }
+  }
+
+  // Traverse top outer perimeter in the direction induced by top triangles.
+  // LEFT down -> BOTTOM right -> RIGHT up -> TOP left.
+  const perimeter: number[] = [];
+  for (let j = 0; j <= ny; j++) perimeter.push(j * stride);
+  for (let i = 1; i <= nx; i++) perimeter.push(ny * stride + i);
+  for (let j = ny - 1; j >= 0; j--) perimeter.push(j * stride + nx);
+  for (let i = nx - 1; i >= 1; i--) perimeter.push(i);
+  const bottomStart = topVertexCount;
+  for (const topIndex of perimeter) {
+    const ix = 3 * topIndex;
+    vertices.push(vertices[ix]!, -project.thickness, vertices[ix + 2]!);
+  }
+  const bottomCenter = vertices.length / 3;
+  vertices.push(0, -project.thickness, 0);
+
+  const wallTriangles: number[] = [], bottomTriangles: number[] = [];
+  for (let i = 0; i < perimeter.length; i++) {
+    const next = (i + 1) % perimeter.length;
+    const a = perimeter[i]!, b = perimeter[next]!;
+    const lowerA = bottomStart + i, lowerB = bottomStart + next;
+    // Side shares the top and lower rings: no cracks or intersecting planes.
+    wallTriangles.push(a, lowerA, b, b, lowerA, lowerB);
+    // Reversed winding from top => bottom faces -Y.
+    bottomTriangles.push(lowerA, bottomCenter, lowerB);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  // Top surface normals must not be averaged with the sharp vertical side
+  // normals. Compute normals from the top triangles alone before adding
+  // side/bottom groups; those use a separate flat-shaded material.
+  geometry.setIndex(topTriangles);
   geometry.computeVertexNormals();
-  return new THREE.Mesh(geometry, material);
+  geometry.setIndex([...topTriangles, ...wallTriangles, ...bottomTriangles]);
+  geometry.clearGroups();
+  geometry.addGroup(0, topTriangles.length, 0);
+  geometry.addGroup(topTriangles.length, wallTriangles.length + bottomTriangles.length, 1);
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
+/**
+ * The visible curved preview is ONE mesh with one contiguous indexed solid.
+ * V/ball cuts should not have a top overlay or separate channel bottom.
+ */
 export function makeCurvedPreview(
   project: Project, artwork: Artwork, compiled: CompiledOperation,
   stock: StockMaterial, pxPerMm: number,
@@ -157,54 +224,17 @@ export function makeCurvedPreview(
   if (op.mode !== 'vector' || (op.tool !== 'ball' && op.tool !== 'vbit'))
     throw new Error('Native curved preview requires SVG V-bit or ball-nose engraving.');
   const field = makeNativeSvgDistanceField(artwork, project, compiled, pxPerMm);
-  // Visibility is clipped using the exact source Path2D at the physical cutter
-  // top radius; unlike the mesh silhouette it is never extracted from a grid.
-  const scale = Math.min(6144 / Math.max(project.width, project.height),
-    Math.max(1024 / Math.max(project.width, project.height), pxPerMm));
-  const canvasW = Math.max(1, Math.round(project.width * scale));
-  const canvasH = Math.max(1, Math.round(project.height * scale));
-  const path = svgPathForOperation(artwork, project, compiled, scale);
-  const makeMask = (outside: boolean) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasW;
-    canvas.height = canvasH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Cannot create cutter outline masks');
-    ctx.fillStyle = outside ? '#ffffff' : '#000000';
-    ctx.fillRect(0, 0, canvasW, canvasH);
-    ctx.strokeStyle = outside ? '#000000' : '#ffffff';
-    ctx.lineWidth = cutterSurfaceRadius(op) * 2 * scale;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.stroke(path);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.NoColorSpace;
-    tex.anisotropy = 8;
-    return tex;
-  };
-  const outside = makeMask(true), inside = makeMask(false);
-  const topMat = createStockMaterial(stock);
-  topMat.alphaMap = outside;
-  topMat.alphaTest = 0.01;
-  topMat.alphaToCoverage = true;
-  topMat.needsUpdate = true;
-  const channelMat = createStockMaterial(stock, true);
-  channelMat.alphaMap = inside;
-  channelMat.alphaTest = 0.01;
-  channelMat.alphaToCoverage = true;
-  channelMat.needsUpdate = true;
+  const density = Math.max(6, field.width / project.width / 2);
+  const geometry = buildCurvedStockGeometry(project, field, op, density);
+  const topMaterial = createStockMaterial(stock, true); // smooth cut profiles
+  const sideMaterial = createStockMaterial(stock, false); // crisp stock edges
+  const mesh = new THREE.Mesh(geometry, [topMaterial, sideMaterial]);
   const group = new THREE.Group();
-  const top = new THREE.Mesh(new THREE.PlaneGeometry(project.width, project.height), topMat);
-  top.rotation.x = -Math.PI / 2;
-  group.add(top);
-  const mesh = makeCurvedSurfaceMesh(project, field, op, channelMat, Math.max(6, field.width / project.width / 2));
-  mesh.position.y = -0.00005; // prevent coplanar z fighting at curve boundary
   group.add(mesh);
   return { group, density: field.width / project.width,
     dispose: () => {
-      top.geometry.dispose();
-      mesh.geometry.dispose();
-      topMat.dispose(); channelMat.dispose();
-      outside.dispose(); inside.dispose();
+      geometry.dispose();
+      topMaterial.dispose();
+      sideMaterial.dispose();
     } };
 }

@@ -72,6 +72,7 @@ export class Preview3D {
     this.vectorMask = null;
     this.curvedState = null;
     this.host.dataset.previewMode = 'heightfield';
+    this.host.dataset.previewTopology = 'legacy';
     if (this.model) {
       this.scene.remove(this.model);
       this.model.traverse(obj => {
@@ -97,6 +98,7 @@ export class Preview3D {
       this.curvedState = { artwork, project: { ...project }, compiled: compiled[0]!, stock,
         density: result.density, group: result.group };
       this.host.dataset.previewMode = 'native-svg-curved';
+      this.host.dataset.previewTopology = 'single-indexed-stock';
       material.dispose();
     }
     const exact = !curved && compiled.length === 1 && compiled[0]!.operation.mode === 'vector' && compiled[0]!.operation.tool === 'flat'
@@ -143,6 +145,7 @@ export class Preview3D {
       }
       this.model.add(new THREE.Mesh(exact.walls, sideMaterial));
     }
+    if (!curved) {
     const w = surface.width, h = surface.height, stride = w + 1;
     const verts = new Float32Array(stride * (h + 1) * 3);
 
@@ -203,6 +206,15 @@ export class Preview3D {
     base.position.y = -project.thickness;
     this.model.add(base);
 
+    } else {
+      // V/ball stock already includes its own perimeter and bottom in a
+      // SINGLE closed mesh. Never add the old heightfield side walls or base.
+      sideMaterial.dispose();
+    }
+
+    let meshCount = 0;
+    this.model.traverse(obj => { if (obj instanceof THREE.Mesh) meshCount++; });
+    this.host.dataset.previewMeshes = String(meshCount);
     this.scene.add(this.model);
     this.controls.target.set(0, -project.thickness * 0.25, 0);
     this.controls.update();
