@@ -136,3 +136,20 @@ describe('SVG flat endmill swept geometry', () => {
     geometry.top.dispose(); geometry.floor.dispose(); geometry.walls.dispose();
   });
 });
+
+describe('whole-curve cutter offset', () => {
+  it('preserves the uncut island inside a closed SVG centerline', () => {
+    const project = { ...defaultProject, width: 30, height: 30 };
+    const op = newOperation({ mode: 'vector', tool: 'flat', diameter: 2, depth: 1 });
+    const circle = Array.from({ length: 361 }, (_, i) => {
+      const t = i * Math.PI / 180;
+      return { x: 15 + 8 * Math.cos(t), y: 15 + 8 * Math.sin(t), depth: 1 };
+    });
+    const geometry = flatVectorGeometry(project, {
+      operation: op, paths: [circle], length: 2 * Math.PI * 8,
+    });
+    expect(geometry.footprint.length).toBe(1);
+    expect(geometry.footprint[0]?.length).toBe(2);
+    geometry.top.dispose(); geometry.floor.dispose(); geometry.walls.dispose();
+  });
+});
