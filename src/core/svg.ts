@@ -65,7 +65,9 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
       try { length = shape.getTotalLength(); } catch { continue; }
       if (!(length > 0)) continue;
       const scale = Math.max(Math.hypot(ctm.a, ctm.b), Math.hypot(ctm.c, ctm.d));
-      const count = Math.min(10000, Math.max(2, Math.ceil(length * scale / 1.2)));
+      // Sample SVG curves finely BEFORE generating both the preview and G-code.
+      // Previous 1.2px sampling visibly faceted circles and Bézier paths.
+      const count = Math.min(30000, Math.max(2, Math.ceil(length * scale / 0.25)));
       const points: VectorStroke['points'] = [];
       for (let i = 0; i <= count; i++) {
         const pt = shape.getPointAtLength(length * i / count).matrixTransform(ctm);
