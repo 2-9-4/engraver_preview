@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { CompiledOperation, Project } from './types';
+import type { Artwork, CompiledOperation, Project } from './types';
+import { makeVectorMasks } from './svgMasks';
 import { flatVectorGeometry } from './core/vectorGeometry';
 import { createStockMaterial, type StockMaterial } from './materials';
 import type { Surface } from './core/simulate';
@@ -13,6 +14,15 @@ export class Preview3D {
   private model: THREE.Group | null = null;
   private resizeObserver: ResizeObserver;
   private frame = 0;
+  private frameCounter = 0;
+  private vectorMask: {
+    project: Project;
+    artwork: Artwork;
+    compiled: CompiledOperation;
+    top: THREE.MeshStandardMaterial;
+    floor: THREE.MeshStandardMaterial;
+    resolution: number;
+  } | null = null;
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -43,6 +53,7 @@ export class Preview3D {
     const tick = () => {
       this.frame = requestAnimationFrame(tick);
       this.controls.update();
+      if (++this.frameCounter % 35 === 0) this.refineVectorMasks();
       this.renderer.render(this.scene, this.camera);
     };
     tick();
@@ -55,14 +66,16 @@ export class Preview3D {
     this.camera.updateProjectionMatrix();
   }
 
-  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf'): void {
+  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf', artwork: Artwork | null = null): void {
+    this.vectorMask = null;
+    this.host.dataset.previewMode = 'heightfield';
     if (this.model) {
       this.scene.remove(this.model);
       this.model.traverse(obj => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose();
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          mats.forEach(mat => mat.dispose());
+          mats.forEach(mat => { if (mat instanceof THREE.MeshStandardMaterial) mat.alphaMap?.dispose(); mat.dispose(); });
         }
       });
     }
@@ -75,7 +88,45 @@ export class Preview3D {
     const exact = compiled.length === 1 && compiled[0]!.operation.mode === 'vector' && compiled[0]!.operation.tool === 'flat'
       ? flatVectorGeometry(project, compiled[0]!) : null;
     if (exact) {
-      for (const geometry of [exact.top, exact.floor]) this.model.add(new THREE.Mesh(geometry, material));
+      // Cutter-swept polygon meshes are still useful for 3D side walls, but
+      // their triangulated silhouettes must NEVER define the visible top/floor.
+      // Render those faces using the browser's native SVG curves as a vector
+      // cut mask; this avoids the polygon clipping and G1 discretization that
+      // previously made edges look faceted, even for mathematically smooth SVGs.
+      if (artwork?.isSVG) {
+        const mmPerScreenPixel = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) *
+          this.camera.position.distanceTo(this.controls.target) /
+          Math.max(1, this.host.clientHeight);
+        const masks = makeVectorMasks(artwork, project, compiled[0]!, Math.max(8, 2 / mmPerScreenPixel));
+        const topMaterial = createStockMaterial(stock);
+        const floorMaterial = createStockMaterial(stock);
+        for (const [mat, texture] of [[topMaterial, masks.top], [floorMaterial, masks.floor]] as const) {
+          mat.alphaMap = texture;
+          mat.alphaTest = 0.01;
+          mat.alphaToCoverage = true;
+          mat.depthWrite = true;
+          mat.side = THREE.DoubleSide;
+          mat.needsUpdate = true;
+        }
+        const surfacePlane = () => {
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(project.width, project.height), topMaterial);
+          mesh.rotation.x = -Math.PI / 2;
+          return mesh;
+        };
+        this.model.add(surfacePlane());
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(project.width, project.height), floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -exact.depth;
+        this.model.add(floor);
+        this.vectorMask = { project: { ...project }, artwork, compiled: compiled[0]!,
+          top: topMaterial, floor: floorMaterial, resolution: masks.resolution };
+        this.host.dataset.previewMode = 'native-svg-mask';
+        exact.top.dispose();
+        exact.floor.dispose();
+        material.dispose();
+      } else {
+        for (const geometry of [exact.top, exact.floor]) this.model.add(new THREE.Mesh(geometry, material));
+      }
       this.model.add(new THREE.Mesh(exact.walls, sideMaterial));
     }
     const w = surface.width, h = surface.height, stride = w + 1;
@@ -141,6 +192,33 @@ export class Preview3D {
     this.scene.add(this.model);
     this.controls.target.set(0, -project.thickness * 0.25, 0);
     this.controls.update();
+  }
+
+  private projectedPixelsPerMm(): number {
+    const distance = Math.max(1, this.camera.position.distanceTo(this.controls.target));
+    const mmPerPixel = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) *
+      distance / Math.max(1, this.host.clientHeight * this.renderer.getPixelRatio());
+    return Math.max(8, 2 / mmPerPixel);
+  }
+
+  // The masks are rasterized *only at the display boundary* from the original
+  // parametric SVG (not from CAM paths). Regenerate after camera zoom so the
+  // temporary display texture does not become a visibly pixelated engraving.
+  private refineVectorMasks(): void {
+    const state = this.vectorMask;
+    if (!state) return;
+    const request = this.projectedPixelsPerMm();
+    const max = 6144 / Math.max(state.project.width, state.project.height);
+    if (request <= state.resolution * 1.4 || state.resolution >= max * 0.99) return;
+    const next = makeVectorMasks(state.artwork, state.project, state.compiled, request);
+    const oldTop = state.top.alphaMap, oldFloor = state.floor.alphaMap;
+    state.top.alphaMap = next.top;
+    state.floor.alphaMap = next.floor;
+    state.resolution = next.resolution;
+    state.top.needsUpdate = true;
+    state.floor.needsUpdate = true;
+    oldTop?.dispose();
+    oldFloor?.dispose();
   }
 
   resetCamera(project: Project): void {

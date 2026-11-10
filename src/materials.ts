@@ -5,7 +5,7 @@ export type StockMaterial = 'mdf' | 'plywood' | 'colorcore';
 export function createStockMaterial(kind: StockMaterial, side = false): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({
     color: '#ffffff', roughness: kind === 'colorcore' ? 0.68 : 0.94,
-    metalness: 0, side: THREE.DoubleSide, flatShading: true,
+    metalness: 0, side: THREE.DoubleSide, flatShading: !side,
   });
   material.onBeforeCompile = shader => {
     shader.vertexShader = shader.vertexShader.replace(
@@ -13,7 +13,7 @@ export function createStockMaterial(kind: StockMaterial, side = false): THREE.Me
       '#include <common>\nvarying vec3 vStockPosition;'
     ).replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\nvStockPosition = position;'
+      '#include <begin_vertex>\nvStockPosition = (modelMatrix * vec4(position, 1.0)).xyz;'
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',

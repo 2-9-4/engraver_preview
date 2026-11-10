@@ -113,7 +113,7 @@ function build(): void {
     pixels = preprocess(artwork, Math.max(1, Math.round(project.width * scale)), Math.max(1, Math.round(project.height * scale)), prep);
     compiled = operations.filter(o => o.enabled).map(o => compileOperation(project, pixels!, artwork!, prep, o));
     const surface = simulateSurface(project, compiled);
-    preview.setSurface(project, surface, compiled, stockMaterial);
+    preview.setSurface(project, surface, compiled, stockMaterial, artwork);
     renderImagePreview();
     el('header-size').textContent = project.width + ' × ' + project.height + ' mm';
     el('stat-operations').textContent = String(compiled.length);

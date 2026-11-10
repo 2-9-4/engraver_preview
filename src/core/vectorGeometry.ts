@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import * as polygonClipping from 'polygon-clipping';
+import polygonClipping from 'polygon-clipping';
 import ClipperLib from 'clipper-lib';
 import type { CompiledOperation, Project, Toolpath } from '../types';
 
@@ -104,21 +104,40 @@ function makePlanar(regions: Multi, project: Project, elevation: number): THREE.
 
 function makeWalls(regions: Multi, project: Project, upper: number, lower: number): THREE.BufferGeometry {
   const vertices: number[] = [];
+  const normals: number[] = [];
+  const smoothCornerDot = Math.cos(Math.PI / 5); // preserve genuinely sharp corners
   for (const polygon of regions) for (const ring of polygon) {
-    const area = winding(ring);
-    if (Math.abs(area) < 1e-8) continue;
-    for (let i = 0; i < ring.length - 1; i++) {
+    if (Math.abs(winding(ring)) < 1e-8) continue;
+    const n = ring.length - 1;
+    const edgeNormal = (i: number): [number, number, number] => {
+      const p = ring[(i + n) % n]!, q = ring[(i + n + 1) % n]!;
+      const dx = q[0]! - p[0]!, dy = q[1]! - p[1]!;
+      const len = Math.hypot(dx, dy) || 1;
+      // Original ring winding is preserved, including reversed hole walls.
+      return [dy / len, 0, dx / len];
+    };
+    const blend = (a: [number, number, number], b: [number, number, number]) => {
+      if (a[0] * b[0] + a[2] * b[2] < smoothCornerDot) return b;
+      const x = a[0] + b[0], z = a[2] + b[2];
+      const len = Math.hypot(x, z) || 1;
+      return [x / len, 0, z / len] as [number, number, number];
+    };
+    for (let i = 0; i < n; i++) {
       const a = ring[i]!, b = ring[i + 1]!;
       const x1 = a[0]! - project.width / 2, x2 = b[0]! - project.width / 2;
       const z1 = project.height / 2 - a[1]!, z2 = project.height / 2 - b[1]!;
-      // Double-sided material handles boundary orientation and hole winding.
+      const current = edgeNormal(i);
+      const start = blend(edgeNormal(i - 1), current);
+      const finish = blend(edgeNormal(i + 1), current);
       vertices.push(x1, upper, z1, x1, lower, z1, x2, upper, z2,
                     x2, upper, z2, x1, lower, z1, x2, lower, z2);
+      for (const normal of [start, start, finish, finish, start, finish])
+        normals.push(...normal);
     }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geo.computeVertexNormals();
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   return geo;
 }
 
