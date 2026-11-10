@@ -5,7 +5,7 @@ import { createStockMaterial, type StockMaterial } from './materials';
 
 export const DISTANCE_MAX_PX = 2560;
 export const CURVE_MESH_MAX = 1050;
-export const DISTANCE_MIN_PX_PER_MM = 8;
+export const DISTANCE_MIN_PX_PER_MM = 12;
 
 /** Physical cross section measured from the cutter centerline; all units mm.
  * The center of a ball endmill is a hemispherical tip, not a V/triangular cone.
@@ -197,7 +197,7 @@ export function makeCurvedPreview(
   const top = new THREE.Mesh(new THREE.PlaneGeometry(project.width, project.height), topMat);
   top.rotation.x = -Math.PI / 2;
   group.add(top);
-  const mesh = makeCurvedSurfaceMesh(project, field, op, channelMat, field.width / project.width / 2);
+  const mesh = makeCurvedSurfaceMesh(project, field, op, channelMat, Math.max(6, field.width / project.width / 2));
   mesh.position.y = -0.00005; // prevent coplanar z fighting at curve boundary
   group.add(mesh);
   return { group, density: field.width / project.width,
