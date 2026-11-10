@@ -13,7 +13,7 @@ export function createStockMaterial(kind: StockMaterial, side = false): THREE.Me
       '#include <common>\nvarying vec3 vStockPosition;'
     ).replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\nvStockPosition = position;'
+      '#include <begin_vertex>\nvStockPosition = (modelMatrix * vec4(position, 1.0)).xyz;'
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
