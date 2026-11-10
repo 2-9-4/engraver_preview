@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest';
+import { defaultMachine, defaultProject, newOperation } from '../src/types';
+import { depthFromIntensity } from '../src/core/toolpaths';
+import { simulateSurface, sweepPath, toolHeightAtRadius } from '../src/core/simulate';
+import { generateGcode } from '../src/core/gcode';
+import type { CompiledOperation } from '../src/types';
+
+describe('cutter geometry', () => {
+  it('V-bit slope matches included angle', () => {
+    const op = newOperation({ tool: 'vbit', angle: 60 });
+    expect(toolHeightAtRadius(Math.tan(Math.PI / 6), op)).toBeCloseTo(1);
+  });
+  it('ball nose rises with radius and flat cutter stays flat', () => {
+    const ball = newOperation({ tool: 'ball', diameter: 4 });
+    expect(toolHeightAtRadius(0, ball)).toBe(0);
+    expect(toolHeightAtRadius(2, ball)).toBeCloseTo(2);
+    expect(toolHeightAtRadius(2.1, ball)).toBe(Infinity);
+    expect(toolHeightAtRadius(1.5, { ...ball, tool: 'flat' })).toBe(0);
+  });
+  it('interpolates cuts between path points', () => {
+    const stamps: number[] = [];
+    sweepPath([{ x: 0, y: 0, depth: 1 }, { x: 8, y: 0, depth: 3 }], 1,
+      (x, _y, d) => { stamps.push(x); expect(d).toBeCloseTo(1 + x / 4); });
+    expect(stamps).toHaveLength(9);
+  });
+  it('simulates milled channel while retaining uncut stock', () => {
+    const project = { ...defaultProject, width: 10, height: 10, thickness: 3, resolution: 40 };
+    const op = newOperation({ tool: 'ball', diameter: 2, depth: 2 });
+    const surface = simulateSurface(project, [{ operation: op, length: 5,
+      paths: [[{ x: 2.5, y: 5, depth: 2 }, { x: 7.5, y: 5, depth: 2 }]] }]);
+    expect(surface.minDepth).toBeCloseTo(-2);
+    expect(surface.values.some(v => v < -1)).toBe(true);
+    expect(surface.values.some(v => v === 0)).toBe(true);
+  });
+});
+describe('intensity to depth mapping', () => {
+  it('thresholds and applies gamma', () => {
+    const op = newOperation({ threshold: 0.2, depth: 2, gamma: 2 });
+    expect(depthFromIntensity(0.1, op)).toBe(0);
+    expect(depthFromIntensity(1, op)).toBe(2);
+    expect(depthFromIntensity(0.6, op)).toBeCloseTo(0.5);
+  });
+});
+describe('G-code export', () => {
+  const op = newOperation({ name: 'Sample', depth: 2, passDepth: 1, plunge: 100, feed: 600 });
+  const compiled: CompiledOperation = { operation: op, length: 10, paths: [[{ x: 1, y: 2, depth: 2 }, { x: 11, y: 2, depth: 1.3 }]] };
+  it('uses safe Z, two depth passes, no homing or coordinate override', () => {
+    const code = generateGcode(defaultProject, defaultMachine, compiled);
+    expect(code).toContain('G90');
+    expect(code).toContain('G21');
+    expect(code).toContain('G0 Z5.000');
+    expect(code).toContain('G1 Z-1.000 F100.000');
+    expect(code).toContain('G1 Z-2.000 F100.000');
+    expect(code).not.toMatch(/(?:^|\n)G28\b/);
+    expect(code).not.toMatch(/(?:^|\n)G92\b/);
+    expect(code).not.toMatch(/(?:^|\n)M3\b/);
+  });
+  it('avoids unsupported G21/G94/M2 on Klipper', () => {
+    const code = generateGcode(defaultProject, { ...defaultMachine, controller: 'klipper' }, compiled);
+    expect(code).not.toMatch(/(?:^|\n)G21\b/);
+    expect(code).not.toMatch(/(?:^|\n)G94\b/);
+    expect(code).not.toMatch(/(?:^|\n)M2\b/);
+    expect(code).toContain('G1 X11.000 Y2.000');
+  });
+  it('uses LinuxCNC G94, M2 and optional spindle', () => {
+    const code = generateGcode(defaultProject, { ...defaultMachine, controller: 'linuxcnc', spindleEnabled: true }, compiled);
+    expect(code).toContain('G94');
+    expect(code).toContain('M3 S12000');
+    expect(code).toContain('M5');
+    expect(code).toContain('\nM2\n');
+  });
+  it('supports centered XY zero and rejects cut through stock', () => {
+    const code = generateGcode({ ...defaultProject, width: 20, height: 20 },
+      { ...defaultMachine, origin: 'center' }, compiled);
+    expect(code).toContain('X-9.000 Y-8.000');
+    expect(() => generateGcode(defaultProject, defaultMachine,
+      { ...compiled, operation: { ...op, depth: 100 } })).toThrow('stock thickness');
+  });
+});
