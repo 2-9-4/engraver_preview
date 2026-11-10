@@ -43,6 +43,7 @@ export interface Operation {
   angle: number;
   depth: number;
   stepover: number;
+  scanAxis: 'horizontal' | 'vertical';
   threshold: number;
   gamma: number;
   feed: number;
@@ -96,6 +97,7 @@ export function newOperation(partial: Partial<Operation> = {}): Operation {
     angle: 60,
     depth: 1.5,
     stepover: 0.65,
+    scanAxis: 'horizontal',
     threshold: 0.10,
     gamma: 1,
     feed: 650,
