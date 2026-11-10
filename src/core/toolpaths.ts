@@ -1,5 +1,6 @@
 import type { Artwork, CompiledOperation, Operation, Pixels, Point, Preprocess, Project, Toolpath } from '../types';
 import { intensityAt } from './image';
+import { nativeStrokeToolpaths } from './nativeCurves';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 export function depthFromIntensity(value: number, operation: Operation): number {
@@ -62,10 +63,10 @@ function compileVectors(project: Project, artwork: Artwork, op: Operation): Tool
   const top = (project.height - displayHeight) / 2;
   return artwork.strokes
     .filter(stroke => !selected || stroke.color.toLowerCase() === selected)
-    .map(stroke => stroke.points.map(({ x, y }): Point => ({
+    .flatMap(stroke => stroke.curves ? nativeStrokeToolpaths(project, artwork, stroke, op.depth) : [stroke.points.map(({ x, y }): Point => ({
       x: left + clamp(x, 0, 1) * displayWidth,
       y: project.height - (top + clamp(y, 0, 1) * displayHeight),
       depth: op.depth,
-    })))
+    }))])
     .filter(path => path.length > 1);
 }

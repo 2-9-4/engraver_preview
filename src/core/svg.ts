@@ -1,3 +1,4 @@
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 import type { Artwork, VectorStroke } from '../types';
 
 const svgNS = 'http://www.w3.org/2000/svg';
@@ -61,19 +62,24 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
       if (!color || style.display === 'none' || Number(style.strokeOpacity) === 0 || Number(style.opacity) === 0) continue;
       const ctm = shape.getCTM();
       if (!ctm) continue;
-      let length = 0;
-      try { length = shape.getTotalLength(); } catch { continue; }
-      if (!(length > 0)) continue;
-      const scale = Math.max(Math.hypot(ctm.a, ctm.b), Math.hypot(ctm.c, ctm.d));
-      // Sample SVG curves finely BEFORE generating both the preview and G-code.
-      // Previous 1.2px sampling visibly faceted circles and Bézier paths.
-      const count = Math.min(30000, Math.max(2, Math.ceil(length * scale / 0.25)));
-      const points: VectorStroke['points'] = [];
-      for (let i = 0; i <= count; i++) {
-        const pt = shape.getPointAtLength(length * i / count).matrixTransform(ctm);
-        points.push({ x: pt.x / width, y: pt.y / height });
-      }
-      result.push({ color, points });
+      // Preserve parametric segments (lines, quadratic/cubic Béziers and SVG arcs)
+      // instead of using getPointAtLength at any pixel-based spacing.
+      // Parse only the local geometry; the DOM CTM already captures transforms,
+      // nested groups and SVG viewBox mapping for this actual element.
+      const attrs = ['d', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height',
+        'rx', 'ry', 'cx', 'cy', 'r', 'points'];
+      const local = attrs.map(name => {
+        const value = shape.getAttribute(name);
+        return value === null ? '' : ' ' + name + '="' + value.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '"';
+      }).join('');
+      const source = '<svg xmlns="' + svgNS + '"><' + shape.localName +
+        local + ' stroke="#000" fill="none"/></svg>';
+      const paths = new SVGLoader().parse(source).paths;
+      const transform: [number, number, number, number, number, number] =
+        [ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f];
+      const curves = paths.flatMap(path => path.subPaths.map(subpath =>
+        subpath.curves.map(curve => ({ curve, ctm: transform })))).filter(subpath => subpath.length);
+      if (curves.length) result.push({ color, curves, points: [] });
     }
   } finally {
     root.remove();
