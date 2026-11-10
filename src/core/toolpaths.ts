@@ -49,11 +49,17 @@ function compileRaster(project: Project, pixels: Pixels, prep: Preprocess, op: O
 
 function compileVectors(project: Project, artwork: Artwork, op: Operation): Toolpath[] {
   const selected = op.channel === 'color' ? op.color.toLowerCase() : null;
+  // Match image fitting: SVG strokes must not stretch when the stock and artwork have different aspect ratios.
+  const scale = Math.min(project.width / artwork.image.naturalWidth, project.height / artwork.image.naturalHeight);
+  const displayWidth = artwork.image.naturalWidth * scale;
+  const displayHeight = artwork.image.naturalHeight * scale;
+  const left = (project.width - displayWidth) / 2;
+  const top = (project.height - displayHeight) / 2;
   return artwork.strokes
     .filter(stroke => !selected || stroke.color.toLowerCase() === selected)
     .map(stroke => stroke.points.map(({ x, y }): Point => ({
-      x: clamp(x, 0, 1) * project.width,
-      y: (1 - clamp(y, 0, 1)) * project.height,
+      x: left + clamp(x, 0, 1) * displayWidth,
+      y: project.height - (top + clamp(y, 0, 1) * displayHeight),
       depth: op.depth,
     })))
     .filter(path => path.length > 1);

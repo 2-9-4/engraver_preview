@@ -23,7 +23,7 @@ function sanitize(source: string): SVGSVGElement {
   root.querySelectorAll('style').forEach(node => {
     if (/@import|url\(\s*['"]?(?!#)/i.test(node.textContent || '')) node.remove();
   });
-  return root as SVGSVGElement;
+  return root as unknown as SVGSVGElement;
 }
 
 function svgDimension(root: SVGSVGElement): { width: number; height: number } {

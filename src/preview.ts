@@ -84,7 +84,7 @@ export class Preview3D {
       colors[3 * idx + 2] = 0.30 * tint;
       if (x < w && y < h) {
         const a = idx, b = idx + 1, c = idx + stride, d = c + 1;
-        topIndices.push(a, c, b, b, c, d);
+        topIndices.push(a, b, c, b, d, c);
       }
     }
     const top = new THREE.BufferGeometry();

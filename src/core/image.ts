@@ -8,8 +8,7 @@ export function preprocess(artwork: Artwork, width: number, height: number, opti
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Canvas 2D is unavailable');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
+  ctx.clearRect(0, 0, width, height);
   const factor = Math.min(width / artwork.image.naturalWidth, height / artwork.image.naturalHeight);
   const w = artwork.image.naturalWidth * factor;
   const h = artwork.image.naturalHeight * factor;
@@ -19,7 +18,8 @@ export function preprocess(artwork: Artwork, width: number, height: number, opti
   const data = ctx.getImageData(0, 0, width, height).data;
   for (let i = 0; i < data.length; i += 4) {
     for (let c = 0; c < 3; c++) {
-      let v = data[i + c]! / 255;
+      const alpha = data[i + 3]! / 255;
+      let v = data[i + c]! / 255 * alpha + (1 - alpha);
       v = clamp((v - 0.5) * (1 + options.contrast / 100) + 0.5 + options.brightness / 100);
       if (options.posterize > 1) v = Math.round(v * (options.posterize - 1)) / (options.posterize - 1);
       data[i + c] = Math.round(v * 255);
@@ -50,8 +50,7 @@ export function intensityAt(p: Pixels, x: number, y: number, channel: Channel, c
     }
     default: v = 1 - (0.2126 * r + 0.7152 * g + 0.0722 * b);
   }
-  v *= a;
-  return clamp(invert ? 1 - v : v);
+  return clamp((invert ? 1 - v : v) * a);
 }
 
 function hexRGB(hex: string): [number, number, number] {
