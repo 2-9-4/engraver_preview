@@ -51,7 +51,15 @@ export function generateGcode(project: Project, machine: Machine, compiled: Comp
         const p = path[i]!;
         const depth = Math.min(p.depth, limit);
         if (Math.hypot(p.x - last.x, p.y - last.y) < 0.01 && Math.abs(depth - lastDepth) < 0.01) continue;
-        lines.push('G1 ' + coords(p, project, machine) + ' Z-' + fmt(depth) + ' F' + fmt(op.feed));
+        // F applies to 3D path length. Reduce feed on steep variable-Z segments
+        // so the Z component never exceeds the requested plunge feed.
+        const xyDistance = Math.hypot(p.x - last.x, p.y - last.y);
+        const zDistance = Math.abs(depth - lastDepth);
+        const linearDistance = Math.hypot(xyDistance, zDistance);
+        const segmentFeed = zDistance > 0
+          ? Math.min(op.feed, op.plunge * linearDistance / zDistance)
+          : op.feed;
+        lines.push('G1 ' + coords(p, project, machine) + ' Z-' + fmt(depth) + ' F' + fmt(segmentFeed));
         last = p;
         lastDepth = depth;
       }

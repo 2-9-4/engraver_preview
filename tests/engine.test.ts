@@ -77,3 +77,16 @@ describe('G-code export', () => {
       { ...compiled, operation: { ...op, depth: 100 } })).toThrow('stock thickness');
   });
 });
+
+describe('simultaneous XYZ motion', () => {
+  it('limits feed on steep variable-Z segments to requested Z plunge speed', () => {
+    const op = newOperation({ depth: 2, passDepth: 2, feed: 1200, plunge: 90 });
+    const paths = [[{ x: 1, y: 2, depth: 2 }, { x: 1.01, y: 2, depth: 0.5 }]];
+    const program = generateGcode(defaultProject, defaultMachine, { operation: op, paths, length: 0.01 });
+    const line = program.split('\n').find(l => l.includes('X1.010 Y2.000'));
+    expect(line).toBeDefined();
+    const feed = Number(line!.match(/F([\d.]+)/)?.[1]);
+    expect(feed).toBeGreaterThan(0);
+    expect(feed).toBeLessThan(91);
+  });
+});
