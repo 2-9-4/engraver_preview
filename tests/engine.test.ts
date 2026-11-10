@@ -1,3 +1,4 @@
+import { cutterProfileAtDistance, cutterSurfaceRadius, distanceAt } from '../src/curvedPreview';
 import { CubicBezierCurve, EllipseCurve, LineCurve, Vector2 } from 'three';
 import { nativeStrokeToolpaths } from '../src/core/nativeCurves';
 import { describe, expect, it } from 'vitest';
@@ -194,5 +195,27 @@ describe('native SVG curve preservation', () => {
     expect(paths[0]!.length).toBeGreaterThan(5);
     expect(paths[0]![0]!.x).toBeCloseTo(75);
     expect(paths[0]!.at(-1)!.x).toBeCloseTo(25);
+  });
+});
+
+describe('native SVG curved cutter preview', () => {
+  it('V-bit is a true conical groove with programmed included angle', () => {
+    const op = newOperation({ tool: 'vbit', angle: 60, diameter: 6, depth: 1.5 });
+    const edge = 1.5 * Math.tan(Math.PI / 6);
+    expect(cutterSurfaceRadius(op)).toBeCloseTo(edge);
+    expect(cutterProfileAtDistance(0, op)).toBeCloseTo(-1.5);
+    expect(cutterProfileAtDistance(edge / 2, op)).toBeCloseTo(-0.75);
+    expect(cutterProfileAtDistance(edge, op)).toBeCloseTo(0);
+  });
+  it('ball-nose makes a spherical cove rather than V walls', () => {
+    const op = newOperation({ tool: 'ball', diameter: 4, depth: 1 });
+    expect(cutterSurfaceRadius(op)).toBeCloseTo(Math.sqrt(3));
+    expect(cutterProfileAtDistance(0, op)).toBe(-1);
+    expect(cutterProfileAtDistance(1, op)).toBeCloseTo(1 - Math.sqrt(3));
+    expect(cutterProfileAtDistance(Math.sqrt(3), op)).toBeCloseTo(0);
+  });
+  it('samples the physical display distance field bilinearly', () => {
+    const map = { width: 2, height: 2, mmPerPixel: 1, distances: new Float32Array([0, 2, 2, 4]) };
+    expect(distanceAt(map, 1, 1)).toBeCloseTo(2);
   });
 });

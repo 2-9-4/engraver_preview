@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Artwork, CompiledOperation, Project } from './types';
 import { makeVectorMasks } from './svgMasks';
+import { makeCurvedPreview } from './curvedPreview';
 import { flatVectorGeometry } from './core/vectorGeometry';
 import { createStockMaterial, type StockMaterial } from './materials';
 import type { Surface } from './core/simulate';
@@ -15,6 +16,7 @@ export class Preview3D {
   private resizeObserver: ResizeObserver;
   private frame = 0;
   private frameCounter = 0;
+  private curvedState: { artwork: Artwork; project: Project; compiled: CompiledOperation; stock: StockMaterial; density: number; group: THREE.Group } | null = null;
   private vectorMask: {
     project: Project;
     artwork: Artwork;
@@ -53,7 +55,7 @@ export class Preview3D {
     const tick = () => {
       this.frame = requestAnimationFrame(tick);
       this.controls.update();
-      if (++this.frameCounter % 35 === 0) this.refineVectorMasks();
+      if (++this.frameCounter % 35 === 0) { this.refineVectorMasks(); this.refineCurvedPreview(); }
       this.renderer.render(this.scene, this.camera);
     };
     tick();
@@ -68,6 +70,7 @@ export class Preview3D {
 
   setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf', artwork: Artwork | null = null): void {
     this.vectorMask = null;
+    this.curvedState = null;
     this.host.dataset.previewMode = 'heightfield';
     if (this.model) {
       this.scene.remove(this.model);
@@ -85,7 +88,18 @@ export class Preview3D {
     // SVG flat-endmill engravings are exact cutter-swept polygons with explicit
     // vertical walls, not a sampled heightfield. The cutter circumference alone
     // is tessellated, with <= 0.06 mm nominal chord spacing.
-    const exact = compiled.length === 1 && compiled[0]!.operation.mode === 'vector' && compiled[0]!.operation.tool === 'flat'
+    const curved = artwork?.isSVG && compiled.length === 1 && compiled[0]!.operation.mode === 'vector' &&
+      (compiled[0]!.operation.tool === 'vbit' || compiled[0]!.operation.tool === 'ball');
+    if (curved && artwork) {
+      const request = this.projectedPixelsPerMm();
+      const result = makeCurvedPreview(project, artwork, compiled[0]!, stock, request);
+      this.model.add(result.group);
+      this.curvedState = { artwork, project: { ...project }, compiled: compiled[0]!, stock,
+        density: result.density, group: result.group };
+      this.host.dataset.previewMode = 'native-svg-curved';
+      material.dispose();
+    }
+    const exact = !curved && compiled.length === 1 && compiled[0]!.operation.mode === 'vector' && compiled[0]!.operation.tool === 'flat'
       ? flatVectorGeometry(project, compiled[0]!) : null;
     if (exact) {
       // Cutter-swept polygon meshes are still useful for 3D side walls, but
@@ -150,7 +164,7 @@ export class Preview3D {
 
     top.setIndex(topIndices);
     top.computeVertexNormals();
-    if (!exact) {
+    if (!exact && !curved) {
       // Flat shading prevents normal interpolation from disguising heightfield
       // limitations. Non-flat tools and raster inputs still use this solver.
       const topMesh = new THREE.Mesh(top, material);
@@ -219,6 +233,30 @@ export class Preview3D {
     state.floor.needsUpdate = true;
     oldTop?.dispose();
     oldFloor?.dispose();
+  }
+
+  private refineCurvedPreview(): void {
+    const state = this.curvedState;
+    if (!state) return;
+    const desired = this.projectedPixelsPerMm();
+    const limit = 2560 / Math.max(state.project.width, state.project.height);
+    if (desired <= state.density * 1.5 || state.density >= limit * 0.98) return;
+    const replacement = makeCurvedPreview(state.project, state.artwork, state.compiled,
+      state.stock, desired);
+    this.model?.remove(state.group);
+    state.group.traverse(obj => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose();
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const mat of mats) {
+          if (mat instanceof THREE.MeshStandardMaterial) mat.alphaMap?.dispose();
+          mat.dispose();
+        }
+      }
+    });
+    this.model?.add(replacement.group);
+    state.group = replacement.group;
+    state.density = replacement.density;
   }
 
   resetCamera(project: Project): void {
