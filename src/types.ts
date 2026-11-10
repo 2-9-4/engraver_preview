@@ -7,7 +7,7 @@ export type OperationMode = 'raster' | 'vector';
 export interface VectorStroke {
   color: string;
   // Original SVG parametric curves. Never resample these during import.
-  curves?: Array<{ curve: Curve<Vector2>; ctm: [number, number, number, number, number, number] }>;
+  curves?: Array<Array<{ curve: Curve<Vector2>; ctm: [number, number, number, number, number, number] }>>;
   points: Array<{ x: number; y: number }>; // legacy fallback, empty for native SVG curves
 }
 
