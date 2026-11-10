@@ -1,3 +1,4 @@
+import type { Curve, Vector2 } from 'three';
 export type ToolKind = 'vbit' | 'ball' | 'flat';
 export type Channel = 'luma' | 'red' | 'green' | 'blue' | 'alpha' | 'color';
 export type Controller = 'marlin' | 'klipper' | 'linuxcnc';
@@ -5,7 +6,9 @@ export type OperationMode = 'raster' | 'vector';
 
 export interface VectorStroke {
   color: string;
-  points: Array<{ x: number; y: number }>; // normalized top-left origin
+  // Original SVG parametric curves. Never resample these during import.
+  curves?: Array<{ curve: Curve<Vector2>; ctm: [number, number, number, number, number, number] }>;
+  points: Array<{ x: number; y: number }>; // legacy fallback, empty for native SVG curves
 }
 
 export interface Artwork {
