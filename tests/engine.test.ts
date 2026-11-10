@@ -1,3 +1,5 @@
+import { CubicBezierCurve, EllipseCurve, LineCurve, Vector2 } from 'three';
+import { nativeStrokeToolpaths } from '../src/core/nativeCurves';
 import { describe, expect, it } from 'vitest';
 import { defaultMachine, defaultProject, newOperation } from '../src/types';
 import { depthFromIntensity } from '../src/core/toolpaths';
@@ -151,5 +153,46 @@ describe('whole-curve cutter offset', () => {
     expect(geometry.footprint.length).toBe(1);
     expect(geometry.footprint[0]?.length).toBe(2);
     geometry.top.dispose(); geometry.floor.dispose(); geometry.walls.dispose();
+  });
+});
+
+describe('native SVG curve preservation', () => {
+  const artwork = {
+    name: 'native svg', image: { naturalWidth: 100, naturalHeight: 100 } as HTMLImageElement,
+    isSVG: true, strokes: [],
+  };
+  const project = { ...defaultProject, width: 100, height: 100 };
+  const identity: [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
+  it('preserves exact straight lines without introducing intermediate points', () => {
+    const stroke = { color: '#000000', points: [], curves: [[{
+      curve: new LineCurve(new Vector2(4, 7), new Vector2(90, 7)), ctm: identity,
+    }]] };
+    const paths = nativeStrokeToolpaths(project, artwork, stroke, 1);
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toHaveLength(2);
+    expect(paths[0]![0]!.x).toBe(4);
+    expect(paths[0]![1]!.x).toBe(90);
+  });
+  it('subdivides a cubic by geometric error, not SVG pixel spacing', () => {
+    const stroke = { color: '#000000', points: [], curves: [[{
+      curve: new CubicBezierCurve(new Vector2(0, 0), new Vector2(0, 70),
+        new Vector2(100, 70), new Vector2(100, 0)), ctm: identity,
+    }]] };
+    const coarse = nativeStrokeToolpaths(project, artwork, stroke, 1, 0.5)[0]!;
+    const precise = nativeStrokeToolpaths(project, artwork, stroke, 1, 0.01)[0]!;
+    expect(coarse.length).toBeGreaterThan(2);
+    expect(precise.length).toBeGreaterThan(coarse.length);
+    expect(precise[0]!.x).toBe(0);
+    expect(precise.at(-1)!.x).toBe(100);
+  });
+  it('keeps elliptical arcs parametric until machine motion generation', () => {
+    const stroke = { color: '#000000', points: [], curves: [[{
+      curve: new EllipseCurve(50, 50, 25, 10, 0, Math.PI, false, 0), ctm: identity,
+    }]] };
+    const paths = nativeStrokeToolpaths(project, artwork, stroke, 1);
+    expect(paths).toHaveLength(1);
+    expect(paths[0]!.length).toBeGreaterThan(5);
+    expect(paths[0]![0]!.x).toBeCloseTo(75);
+    expect(paths[0]!.at(-1)!.x).toBeCloseTo(25);
   });
 });
