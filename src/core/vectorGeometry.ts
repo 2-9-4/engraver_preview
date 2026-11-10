@@ -4,7 +4,7 @@ import type { CompiledOperation, Project, Toolpath } from '../types';
 
 // Polygon clipping coordinates are in machine XY millimetres. All outlines are
 // cutter-centerline sweeps, NOT SVG-stroke-width approximations.
-type Ring = number[][];
+type Ring = Array<[number, number]>;
 type Poly = Ring[];
 type Multi = Poly[];
 const rectangle = (w: number, h: number): Multi => [[[[0, 0], [w, 0], [w, h], [0, h], [0, 0]]]];
@@ -25,7 +25,7 @@ function capsule(ax: number, ay: number, bx: number, by: number, r: number): Mul
     const t = a + Math.PI / 2 + Math.PI * i / count;
     ring.push([ax + r * Math.cos(t), ay + r * Math.sin(t)]);
   }
-  ring.push([...ring[0]!]);
+  ring.push([ring[0]![0], ring[0]![1]]);
   return [[ring]];
 }
 
