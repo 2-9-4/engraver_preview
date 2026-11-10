@@ -231,10 +231,11 @@ describe('watertight V-bit and ball-nose stock geometry', () => {
     const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
     return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
   };
-  const size = 121;
+  const size = 481;
+  const sampleStep = project.width / (size - 1);
   const distances = new Float32Array(size * size);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const px = x * 0.5, py = y * 0.5;
+    const px = x * sampleStep, py = y * sampleStep;
     distances[y * size + x] = Math.min(
       segmentDistance(px, py, 20, 20, 40, 20),
       segmentDistance(px, py, 40, 20, 40, 40),
@@ -242,7 +243,7 @@ describe('watertight V-bit and ball-nose stock geometry', () => {
       segmentDistance(px, py, 20, 40, 20, 20),
     );
   }
-  const field = { width: size, height: size, mmPerPixel: 0.5, distances };
+  const field = { width: size, height: size, mmPerPixel: sampleStep, distances };
 
   const validateClosedSolid = (kind: 'vbit' | 'ball') => {
     const op = newOperation({ mode: 'vector', tool: kind, angle: 60, diameter: 4, depth: 1 });
