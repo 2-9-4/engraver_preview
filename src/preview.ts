@@ -212,6 +212,9 @@ export class Preview3D {
       sideMaterial.dispose();
     }
 
+    let meshCount = 0;
+    this.model.traverse(obj => { if (obj instanceof THREE.Mesh) meshCount++; });
+    this.host.dataset.previewMeshes = String(meshCount);
     this.scene.add(this.model);
     this.controls.target.set(0, -project.thickness * 0.25, 0);
     this.controls.update();
