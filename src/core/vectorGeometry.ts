@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import * as polygonClipping from 'polygon-clipping';
+import polygonClipping from 'polygon-clipping';
 import ClipperLib from 'clipper-lib';
 import type { CompiledOperation, Project, Toolpath } from '../types';
 
