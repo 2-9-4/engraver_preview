@@ -22,16 +22,21 @@ function compileRaster(project: Project, pixels: Pixels, prep: Preprocess, op: O
   const out: Toolpath[] = [];
   const stepover = clamp(op.stepover, 0.05, 100);
   const sample = Math.max(0.12, Math.min(stepover * 0.5, project.width / pixels.width));
-  const rows = Math.ceil(project.height / stepover);
-  const columns = Math.ceil(project.width / sample);
+  const vertical = op.scanAxis === 'vertical';
+  const travel = vertical ? project.height : project.width;
+  const cross = vertical ? project.width : project.height;
+  const rows = Math.ceil(cross / stepover);
+  const columns = Math.ceil(travel / sample);
   if (rows * columns > 750000) throw new Error('Toolpath exceeds 750,000 samples. Increase stepover or reduce workpiece size.');
   for (let row = 0; row <= rows; row++) {
-    const y = Math.min(project.height, row * stepover);
+    const crossPos = Math.min(cross, row * stepover);
     const path: Toolpath = [];
     const segments: Toolpath[] = [];
     const backwards = row % 2 === 1;
     for (let col = 0; col <= columns; col++) {
-      const x = project.width * (backwards ? 1 - col / columns : col / columns);
+      const along = travel * (backwards ? 1 - col / columns : col / columns);
+      const x = vertical ? crossPos : along;
+      const y = vertical ? along : crossPos;
       // Canvas Y grows downward; machine Y grows up from the bottom edge.
       const value = intensityAt(pixels, x / project.width, 1 - y / project.height, op.channel, op.color, op.tolerance, prep.invert);
       const depth = depthFromIntensity(value, op);

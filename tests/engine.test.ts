@@ -90,3 +90,24 @@ describe('simultaneous XYZ motion', () => {
     expect(feed).toBeLessThan(91);
   });
 });
+
+describe('export boundary validation', () => {
+  const op = newOperation({ depth: 1, passDepth: 1 });
+  const example = (x: number, y: number, depth: number): CompiledOperation => ({
+    operation: op, length: 1, paths: [[{ x, y, depth }, { x: 2, y: 2, depth: 1 }]],
+  });
+  it('rejects coordinates outside the programmed stock', () => {
+    expect(() => generateGcode(defaultProject, defaultMachine, example(-1, 1, 1))).toThrow('out-of-stock');
+    expect(() => generateGcode(defaultProject, defaultMachine, example(1, 200, 1))).toThrow('out-of-stock');
+  });
+  it('rejects NaN coordinates and exceeding requested cut depth', () => {
+    expect(() => generateGcode(defaultProject, defaultMachine, example(NaN, 1, 1))).toThrow('invalid');
+    expect(() => generateGcode(defaultProject, defaultMachine, example(1, 1, 1.5))).toThrow('invalid');
+  });
+  it('rejects non-finite or nonsensical cutter and machine settings', () => {
+    expect(() => generateGcode(defaultProject, defaultMachine,
+      { ...example(1, 1, 1), operation: { ...op, diameter: NaN } })).toThrow('Cutter');
+    expect(() => generateGcode(defaultProject, { ...defaultMachine, safeZ: Infinity },
+      example(1, 1, 1))).toThrow('finite');
+  });
+});
