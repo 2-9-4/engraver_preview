@@ -82,6 +82,7 @@ function renderOperations(): void {
       op.tool === 'vbit' ? field(id, 'angle', 'Included angle · °', op.angle, 'number', 'min="1" max="179" step="1"') : '',
       field(id, 'depth', 'Max cut · mm', op.depth, 'number', 'min="0.01" max="100" step="0.1"'),
       op.mode === 'raster' ? field(id, 'stepover', 'Stepover · mm', op.stepover, 'number', 'min="0.05" max="30" step="0.05"') : '',
+      op.mode === 'raster' ? selectField(id, 'scanAxis', 'Raster scan direction', op.scanAxis, [['horizontal', 'Horizontal / X'], ['vertical', 'Vertical / Y']]) : '',
       op.mode === 'raster' ? field(id, 'threshold', 'Cut threshold · 0–1', op.threshold, 'number', 'min="0" max="0.99" step="0.02"') : '',
       op.mode === 'raster' ? field(id, 'gamma', 'Depth gamma', op.gamma, 'number', 'min="0.1" max="5" step="0.1"') : '',
       field(id, 'passDepth', 'Step-down · mm', op.passDepth, 'number', 'min="0.01" max="30" step="0.1"'),
