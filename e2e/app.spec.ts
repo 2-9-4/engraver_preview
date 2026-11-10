@@ -21,3 +21,19 @@ test('imports example SVG, displays carved stock, splits colors and exports G-co
   expect(download.suggestedFilename()).toMatch(/engraver.*\.zip$/);
   expect(errors).toEqual([]);
 });
+
+test('switches stock materials and renders SVG flat-endmill geometry', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
+  await page.locator('[data-key="mode"]').selectOption('vector');
+  await page.locator('[data-key="tool"]').selectOption('flat');
+  await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
+  for (const material of ['mdf', 'plywood', 'colorcore']) {
+    await page.locator('#stock-material').selectOption(material);
+    await expect(page.locator('#viewport canvas')).toBeVisible();
+    await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
+  }
+  expect(errors).toEqual([]);
+});
