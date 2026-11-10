@@ -29,7 +29,12 @@ test('switches stock materials and renders SVG flat-endmill geometry', async ({ 
   await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
   await page.locator('[data-key="mode"]').selectOption('vector');
   await page.locator('[data-key="tool"]').selectOption('flat');
-  await expect(page.locator('#viewport')).toHaveAttribute('data-preview-mode', 'native-svg-mask', { timeout: 30000 });
+  await page.waitForTimeout(2000);
+  const mode = await page.locator('#viewport').getAttribute('data-preview-mode');
+  if (mode !== 'native-svg-mask') {
+    throw new Error('Unexpected SVG preview ' + mode + ': ' + await page.locator('#status').innerText() +
+      '; operation count=' + await page.locator('#stat-operations').innerText());
+  }
   await expect(page.locator('#status')).toContainText(/^[1-9][0-9,]* toolpath segments/, { timeout: 30000 });
   await expect(page.locator('#gcode-preview')).toHaveValue(/G1 X/);
   for (const material of ['mdf', 'plywood', 'colorcore']) {
