@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { CompiledOperation, Project } from './types';
+import type { Artwork, CompiledOperation, Project } from './types';
+import { makeVectorMasks } from './svgMasks';
 import { flatVectorGeometry } from './core/vectorGeometry';
 import { createStockMaterial, type StockMaterial } from './materials';
 import type { Surface } from './core/simulate';
@@ -55,14 +56,14 @@ export class Preview3D {
     this.camera.updateProjectionMatrix();
   }
 
-  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf'): void {
+  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf', artwork: Artwork | null = null): void {
     if (this.model) {
       this.scene.remove(this.model);
       this.model.traverse(obj => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose();
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          mats.forEach(mat => mat.dispose());
+          mats.forEach(mat => { if (mat instanceof THREE.MeshStandardMaterial) mat.alphaMap?.dispose(); mat.dispose(); });
         }
       });
     }
@@ -75,7 +76,42 @@ export class Preview3D {
     const exact = compiled.length === 1 && compiled[0]!.operation.mode === 'vector' && compiled[0]!.operation.tool === 'flat'
       ? flatVectorGeometry(project, compiled[0]!) : null;
     if (exact) {
-      for (const geometry of [exact.top, exact.floor]) this.model.add(new THREE.Mesh(geometry, material));
+      // Cutter-swept polygon meshes are still useful for 3D side walls, but
+      // their triangulated silhouettes must NEVER define the visible top/floor.
+      // Render those faces using the browser's native SVG curves as a vector
+      // cut mask; this avoids the polygon clipping and G1 discretization that
+      // previously made edges look faceted, even for mathematically smooth SVGs.
+      if (artwork?.isSVG) {
+        const mmPerScreenPixel = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) *
+          this.camera.position.distanceTo(this.controls.target) /
+          Math.max(1, this.host.clientHeight);
+        const masks = makeVectorMasks(artwork, project, compiled[0]!, Math.max(8, 2 / mmPerScreenPixel));
+        const topMaterial = createStockMaterial(stock);
+        const floorMaterial = createStockMaterial(stock);
+        for (const [mat, texture] of [[topMaterial, masks.top], [floorMaterial, masks.floor]] as const) {
+          mat.alphaMap = texture;
+          mat.alphaTest = 0.01;
+          mat.alphaToCoverage = true;
+          mat.depthWrite = true;
+          mat.side = THREE.DoubleSide;
+          mat.needsUpdate = true;
+        }
+        const surfacePlane = () => {
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(project.width, project.height), topMaterial);
+          mesh.rotation.x = -Math.PI / 2;
+          return mesh;
+        };
+        this.model.add(surfacePlane());
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(project.width, project.height), floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -exact.depth;
+        this.model.add(floor);
+        exact.top.dispose();
+        exact.floor.dispose();
+        material.dispose();
+      } else {
+        for (const geometry of [exact.top, exact.floor]) this.model.add(new THREE.Mesh(geometry, material));
+      }
       this.model.add(new THREE.Mesh(exact.walls, sideMaterial));
     }
     const w = surface.width, h = surface.height, stride = w + 1;
