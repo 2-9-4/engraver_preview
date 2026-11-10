@@ -8,6 +8,7 @@ import { simulateSurface } from './core/simulate';
 import { generateGcode } from './core/gcode';
 import { loadArtwork } from './core/svg';
 import { Preview3D } from './preview';
+import type { StockMaterial } from './materials';
 
 const el = <T extends HTMLElement>(id: string): T => {
   const element = document.getElementById(id);
@@ -25,6 +26,7 @@ let compiled: CompiledOperation[] = [];
 let selectedId = operations[0]!.id;
 let renderTimer: number | undefined;
 let running = false;
+let stockMaterial: StockMaterial = 'mdf';
 const preview = new Preview3D(el('viewport'));
 
 function status(message: string, error = false): void {
@@ -111,7 +113,7 @@ function build(): void {
     pixels = preprocess(artwork, Math.max(1, Math.round(project.width * scale)), Math.max(1, Math.round(project.height * scale)), prep);
     compiled = operations.filter(o => o.enabled).map(o => compileOperation(project, pixels!, artwork!, prep, o));
     const surface = simulateSurface(project, compiled);
-    preview.setSurface(project, surface);
+    preview.setSurface(project, surface, compiled, stockMaterial);
     renderImagePreview();
     el('header-size').textContent = project.width + ' × ' + project.height + ' mm';
     el('stat-operations').textContent = String(compiled.length);
@@ -265,6 +267,10 @@ function initEvents(): void {
     (e.currentTarget as HTMLInputElement).value = '';
   });
   el('demo-btn').addEventListener('click', loadDemo);
+  el<HTMLSelectElement>('stock-material').addEventListener('change', e => {
+    stockMaterial = (e.currentTarget as HTMLSelectElement).value as StockMaterial;
+    schedule();
+  });
   el('add-op').addEventListener('click', () => {
     const next = newOperation({ name: 'Additional engraving', mode: artwork?.isSVG && artwork.strokes.length > 0 ? 'vector' : 'raster' });
     operations.push(next); selectedId = next.id; renderOperations(); schedule();
