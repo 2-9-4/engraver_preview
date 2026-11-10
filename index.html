@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#141b22" />
+  <title>Engraver Preview · CNC Wood Carving Studio</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="identity"><span class="mark">E<span>∕</span></span><div><strong>ENGRAVER</strong><small>WOOD CNC STUDIO</small></div></div>
+    <div class="top-center"><span class="live-dot"></span><span id="file-label">Example artwork</span><span class="top-separator">/</span><span id="header-size">120 × 90 mm</span></div>
+    <div class="header-actions">
+      <button id="demo-btn" class="button secondary">Example</button>
+      <label for="file-input" class="button secondary import-button">Import image / SVG</label>
+      <input id="file-input" type="file" accept=".svg,.png,.jpg,.jpeg,.webp,.bmp,.gif,image/*" hidden />
+      <button id="export-all" class="button primary">Export G-code ZIP</button>
+    </div>
+  </header>
+  <main class="workspace">
+    <aside class="sidepanel left-panel">
+      <section class="section">
+        <div class="section-heading"><span class="eyebrow">01 / SOURCE</span><h2>Artwork</h2></div>
+        <div id="image-well" class="image-well">
+          <canvas id="source-canvas" width="240" height="180" aria-label="Source artwork and selected channel preview"></canvas>
+          <span class="image-legend">CHANNEL PREVIEW</span>
+        </div>
+        <div class="source-name" id="source-name">Example engraving</div>
+        <div class="minor" id="source-type">SVG artwork · vector strokes available</div>
+        <button class="button full secondary" id="split-colors">Separate dominant colors</button>
+        <p class="hint">Import SVG for stroke-following paths, or raster images for depth-based scanlines. All artwork stays in your browser.</p>
+      </section>
+      <section class="section">
+        <div class="section-heading"><span class="eyebrow">02 / IMAGE PROCESSING</span><h2>Pre-process</h2></div>
+        <div class="field-grid">
+          <label class="field"><span>Blur · pixels</span><input data-pre="blur" type="number" min="0" max="20" step="0.5" value="0"></label>
+          <label class="field"><span>Contrast · %</span><input data-pre="contrast" type="number" min="-100" max="200" step="5" value="0"></label>
+          <label class="field"><span>Brightness · %</span><input data-pre="brightness" type="number" min="-100" max="100" step="5" value="0"></label>
+          <label class="field"><span>Posterize levels</span><input data-pre="posterize" type="number" min="0" max="32" step="1" value="0"></label>
+        </div>
+        <label class="checkline"><input type="checkbox" data-pre="invert"><span>Invert channel intensity</span></label>
+        <p class="hint">Each operation independently maps image intensity to Z using its threshold and gamma. Depths are measured below the stock surface.</p>
+      </section>
+      <section class="section">
+        <div class="section-heading"><span class="eyebrow">03 / MATERIAL</span><h2>Workpiece</h2></div>
+        <div class="field-grid">
+          <label class="field"><span>Width · mm</span><input data-project="width" type="number" min="5" max="1000" step="1" value="120"></label>
+          <label class="field"><span>Height · mm</span><input data-project="height" type="number" min="5" max="1000" step="1" value="90"></label>
+          <label class="field"><span>Thickness · mm</span><input data-project="thickness" type="number" min="1" max="150" step="1" value="12"></label>
+          <label class="field"><span>Preview grid</span><input data-project="resolution" type="number" min="40" max="320" step="10" value="170"></label>
+        </div>
+      </section>
+    </aside>
+    <section class="stage">
+      <div class="stage-head">
+        <div><span class="eyebrow">LIVE MACHINING PREVIEW</span><h1>Carved material</h1></div>
+        <button id="reset-camera" class="button ghost">Reset view</button>
+      </div>
+      <div id="viewport" class="viewport" aria-label="Interactive 3D preview of engraved wood">
+        <div class="viewport-hint">DRAG TO ORBIT · SCROLL TO ZOOM · RIGHT DRAG TO PAN</div>
+      </div>
+      <div class="stage-footer">
+        <div class="stat"><span>OPERATIONS</span><strong id="stat-operations">—</strong></div>
+        <div class="stat"><span>PATH LENGTH</span><strong id="stat-length">—</strong></div>
+        <div class="stat"><span>DEEPEST CUT</span><strong id="stat-depth">—</strong></div>
+        <div class="stat"><span>EST. FEED TIME</span><strong id="stat-time">—</strong></div>
+      </div>
+      <div class="statusline"><span class="live-dot"></span><span id="status">Initializing preview…</span></div>
+    </section>
+    <aside class="sidepanel right-panel">
+      <section class="section operations-section">
+        <div class="section-heading"><div><span class="eyebrow">04 / CAM</span><h2>Operations</h2></div><button id="add-op" class="mini-button" title="Add another operation">+ Add</button></div>
+        <p class="hint operation-intro">Each operation can isolate a color or channel, follow SVG strokes, and use its own cutter and depth mapping.</p>
+        <div id="operation-list" class="operation-list"></div>
+      </section>
+      <section class="section">
+        <div class="section-heading"><span class="eyebrow">05 / MACHINE</span><h2>G-code output</h2></div>
+        <label class="field"><span>Controller</span><select data-machine="controller"><option value="marlin">Marlin</option><option value="klipper">Klipper</option><option value="linuxcnc">LinuxCNC</option></select></label>
+        <label class="field"><span>XY zero</span><select data-machine="origin"><option value="lower-left">Lower-left corner</option><option value="center">Workpiece center</option></select></label>
+        <div class="field-grid">
+          <label class="field"><span>Safe Z · mm</span><input data-machine="safeZ" type="number" min="0.2" step="0.5" value="5"></label>
+          <label class="field"><span>Travel · mm/min</span><input data-machine="travelFeed" type="number" min="10" step="100" value="2400"></label>
+        </div>
+        <label class="checkline"><input data-machine="spindleEnabled" type="checkbox"><span>Emit M3 / M5 spindle commands</span></label>
+        <label class="field"><span>Spindle S value / RPM</span><input data-machine="spindleRPM" type="number" min="0" max="50000" step="100" value="12000"></label>
+        <p class="hint" id="controller-help">Manual spindle start by default. Marlin requires spindle support enabled in firmware.</p>
+        <button class="button full primary" id="export-selected">Download selected operation</button>
+        <details class="code-details"><summary>Inspect generated G-code</summary><textarea id="gcode-preview" readonly spellcheck="false"></textarea></details>
+      </section>
+      <p class="safety">SAFETY — Preview is approximate. Dry-run and verify offsets, spindle control, tool diameter, clamp clearance, feedrates and stock thickness before machining. No automatic homing or tool changes.</p>
+    </aside>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
