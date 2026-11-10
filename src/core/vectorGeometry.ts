@@ -43,7 +43,7 @@ function offsetPath(path: Toolpath, radius: number): Multi {
   const offsetter = new ClipperLib.ClipperOffset(2, ARC_ERROR_MM * INTEGER_SCALE);
   offsetter.AddPath(raw, ClipperLib.JoinType.jtRound,
     closed ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
-  const solution = new ClipperLib.Paths();
+  const solution: IntPoint[][] = [];
   offsetter.Execute(solution, radius * INTEGER_SCALE);
   // A closed centerline creates a ring with a hole. Reconstruct it explicitly
   // instead of filling the hole or dropping the interior of a closed stroke.
