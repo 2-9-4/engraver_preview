@@ -44,3 +44,18 @@ test('switches stock materials and renders SVG flat-endmill geometry', async ({ 
   }
   expect(errors).toEqual([]);
 });
+
+test('renders actual native SVG V-bit and ball-nose cutter profiles', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/');
+  await expect(page.locator('#source-name')).toHaveText('sample-geometric-engraving.svg', { timeout: 30000 });
+  await page.locator('[data-key="mode"]').selectOption('vector');
+  for (const bit of ['vbit', 'ball']) {
+    await page.locator('[data-key="tool"]').selectOption(bit);
+    await expect(page.locator('#viewport')).toHaveAttribute('data-preview-mode', 'native-svg-curved', { timeout: 30000 });
+    await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
+    await expect(page.locator('#viewport canvas')).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});
