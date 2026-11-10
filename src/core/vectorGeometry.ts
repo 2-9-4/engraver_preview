@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as polygonClipping from 'polygon-clipping';
+import ClipperLib from 'clipper-lib';
 import type { CompiledOperation, Project, Toolpath } from '../types';
 
 // Polygon clipping coordinates are in machine XY millimetres. All outlines are
@@ -13,47 +14,63 @@ const winding = (ring: Ring) => ring.reduce((sum, p, i) => {
   return sum + p[0]! * q[1]! - q[0]! * p[1]!;
 }, 0);
 
-function capsule(ax: number, ay: number, bx: number, by: number, r: number): Multi {
-  const a = Math.atan2(by - ay, bx - ax);
-  const count = Math.max(12, Math.min(96, Math.ceil(Math.PI * r / 0.06)));
-  const ring: Ring = [];
-  for (let i = 0; i <= count; i++) {
-    const t = a - Math.PI / 2 + Math.PI * i / count;
-    ring.push([bx + r * Math.cos(t), by + r * Math.sin(t)]);
-  }
-  for (let i = 0; i <= count; i++) {
-    const t = a + Math.PI / 2 + Math.PI * i / count;
-    ring.push([ax + r * Math.cos(t), ay + r * Math.sin(t)]);
-  }
+
+const INTEGER_SCALE = 10000; // 0.0001mm integer coordinates (no pixel/voxel grid)
+const ARC_ERROR_MM = 0.005;
+type IntPoint = { X: number; Y: number };
+function pathPolygon(points: IntPoint[]): Multi {
+  const ring: Ring = points.map(p => [p.X / INTEGER_SCALE, p.Y / INTEGER_SCALE]);
+  if (ring.length < 3) return [];
   ring.push([ring[0]![0], ring[0]![1]]);
   return [[ring]];
 }
 
-function merge(shapes: Multi[]): Multi {
-  if (!shapes.length) return [];
-  // Keep each boolean manageable for long SVG curves.
-  let acc: Multi = [];
-  for (let i = 0; i < shapes.length; i += 32) {
-    const batch = polygonClipping.union(...shapes.slice(i, i + 32) as [Multi, ...Multi[]]) as Multi;
-    acc = acc.length ? polygonClipping.union(acc, batch) as Multi : batch;
+function offsetPath(path: Toolpath, radius: number): Multi {
+  const raw: IntPoint[] = [];
+  for (const point of path) {
+    const p = { X: Math.round(point.x * INTEGER_SCALE), Y: Math.round(point.y * INTEGER_SCALE) };
+    if (!raw.length || raw[raw.length - 1]!.X !== p.X || raw[raw.length - 1]!.Y !== p.Y) raw.push(p);
   }
-  return acc;
+  if (!raw.length) return [];
+  // Closed input polylines are still swept as centerline curves (NOT filled SVG contours).
+  // Native ClipperOffset handles join geometry once for the entire curve, instead
+  // of boolean-unioning hundreds of overlapping polygonal capsules per segment.
+  if (raw.length === 1) raw.push({ X: raw[0]!.X + 1, Y: raw[0]!.Y });
+  const closed = raw.length >= 4 &&
+    raw[0]!.X === raw[raw.length - 1]!.X &&
+    raw[0]!.Y === raw[raw.length - 1]!.Y;
+  if (closed) raw.pop();
+  const offsetter = new ClipperLib.ClipperOffset(2, ARC_ERROR_MM * INTEGER_SCALE);
+  offsetter.AddPath(raw, ClipperLib.JoinType.jtRound,
+    closed ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
+  const solution = new ClipperLib.Paths();
+  offsetter.Execute(solution, radius * INTEGER_SCALE);
+  // A closed centerline creates a ring with a hole. Reconstruct it explicitly
+  // instead of filling the hole or dropping the interior of a closed stroke.
+  const outer: Multi[] = [], holes: Multi[] = [];
+  for (const contour of solution) {
+    const geometry = pathPolygon(contour);
+    if (!geometry.length) continue;
+    (ClipperLib.Clipper.Area(contour) >= 0 ? outer : holes).push(geometry);
+  }
+  if (!outer.length) return [];
+  const unionOuter = polygonClipping.union(...outer as [Multi, ...Multi[]]) as Multi;
+  if (!holes.length) return unionOuter;
+  const unionHoles = polygonClipping.union(...holes as [Multi, ...Multi[]]) as Multi;
+  return polygonClipping.difference(unionOuter, unionHoles) as Multi;
 }
 
 function footprint(paths: Toolpath[], radius: number): Multi {
-  const swept: Multi[] = [];
-  for (const path of paths) {
-    for (let i = 1; i < path.length; i++) {
-      const a = path[i - 1]!, b = path[i]!;
-      if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-7) continue;
-      swept.push(capsule(a.x, a.y, b.x, b.y, radius));
-    }
-    if (path.length === 1) {
-      const p = path[0]!;
-      swept.push(capsule(p.x, p.y, p.x + 1e-5, p.y, radius));
-    }
+  // One offset operation per complete SVG stroke; only union the finished
+  // footprints. This avoids tiny overlapping capsule seams and staircase artefacts.
+  const shapes = paths.map(path => offsetPath(path, radius)).filter(shape => shape.length);
+  if (!shapes.length) return [];
+  let merged: Multi = [];
+  for (let i = 0; i < shapes.length; i += 24) {
+    const batch = polygonClipping.union(...shapes.slice(i, i + 24) as [Multi, ...Multi[]]) as Multi;
+    merged = merged.length ? polygonClipping.union(merged, batch) as Multi : batch;
   }
-  return merge(swept);
+  return merged;
 }
 
 function makePlanar(regions: Multi, project: Project, elevation: number): THREE.BufferGeometry {
@@ -115,7 +132,7 @@ export interface ExactVectorGeometry {
 
 /** True topological cutter sweep for ONE constant-depth flat endmill operation.
  * Exact for the polyline tool-center trajectory, with circular cutter edges
- * tessellated at <=0.06mm nominal arc length; no heightfield interpolation.
+ * tessellated to <=0.005mm radial error; no heightfield interpolation.
  */
 export function flatVectorGeometry(project: Project, operation: CompiledOperation): ExactVectorGeometry {
   const op = operation.operation;
