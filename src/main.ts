@@ -176,7 +176,11 @@ async function importFile(file: File): Promise<void> {
     el('source-name').textContent = file.name;
     el('source-type').textContent = (loaded.isSVG ? 'SVG · ' + loaded.strokes.length + ' vector stroke paths' : 'Raster image') + ' · ' + loaded.image.naturalWidth + ' × ' + loaded.image.naturalHeight;
     el('file-label').textContent = file.name;
-    operations = [newOperation({ name: 'Main engraving' })];
+    // Stroked SVGs are vector toolpaths; avoid defaulting to the raster heightfield.
+    operations = [newOperation({
+      name: 'Main engraving',
+      mode: loaded.isSVG && loaded.strokes.length > 0 ? 'vector' : 'raster',
+    })];
     selectedId = operations[0]!.id;
     renderOperations();
     preview.resetCamera(project);
