@@ -77,8 +77,8 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
       const paths = new SVGLoader().parse(source).paths;
       const transform: [number, number, number, number, number, number] =
         [ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f];
-      const curves = paths.flatMap(path => path.subPaths.flatMap(subpath =>
-        subpath.curves.map(curve => ({ curve, ctm: transform }))));
+      const curves = paths.flatMap(path => path.subPaths.map(subpath =>
+        subpath.curves.map(curve => ({ curve, ctm: transform })))).filter(subpath => subpath.length);
       if (curves.length) result.push({ color, curves, points: [] });
     }
   } finally {
