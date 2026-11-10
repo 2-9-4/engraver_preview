@@ -59,3 +59,27 @@ test('renders actual native SVG V-bit and ball-nose cutter profiles', async ({ p
   }
   expect(errors).toEqual([]);
 });
+
+
+test('closed square SVG renders one closed solid for both curved bits', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#source-name')).toHaveText('sample-geometric-engraving.svg', { timeout: 30000 });
+  const squareSVG = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">' +
+    '<rect x="20" y="20" width="60" height="60" stroke="#252525" fill="none" stroke-width="1"/></svg>';
+  await page.locator('#file-input').setInputFiles({
+    name: 'closed-square.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(squareSVG),
+  });
+  await expect(page.locator('#source-name')).toHaveText('closed-square.svg', { timeout: 30000 });
+  await expect(page.locator('[data-key="mode"]')).toHaveValue('vector');
+  for (const bit of ['vbit', 'ball']) {
+    await page.locator('[data-key="tool"]').selectOption(bit);
+    await expect(page.locator('#viewport')).toHaveAttribute('data-preview-mode', 'native-svg-curved', { timeout: 30000 });
+    await expect(page.locator('#viewport')).toHaveAttribute('data-preview-topology', 'single-indexed-stock');
+    await expect(page.locator('#viewport')).toHaveAttribute('data-preview-meshes', '1');
+    await expect(page.locator('#status')).toContainText('toolpath segments');
+    await expect(page.locator('#status')).not.toHaveClass(/error/);
+  }
+  expect(pageErrors).toEqual([]);
+});
