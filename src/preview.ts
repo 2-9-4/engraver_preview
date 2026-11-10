@@ -14,6 +14,15 @@ export class Preview3D {
   private model: THREE.Group | null = null;
   private resizeObserver: ResizeObserver;
   private frame = 0;
+  private frameCounter = 0;
+  private vectorMask: {
+    project: Project;
+    artwork: Artwork;
+    compiled: CompiledOperation;
+    top: THREE.MeshStandardMaterial;
+    floor: THREE.MeshStandardMaterial;
+    resolution: number;
+  } | null = null;
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -44,6 +53,7 @@ export class Preview3D {
     const tick = () => {
       this.frame = requestAnimationFrame(tick);
       this.controls.update();
+      if (++this.frameCounter % 35 === 0) this.refineVectorMasks();
       this.renderer.render(this.scene, this.camera);
     };
     tick();
@@ -57,6 +67,8 @@ export class Preview3D {
   }
 
   setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf', artwork: Artwork | null = null): void {
+    this.vectorMask = null;
+    this.host.dataset.previewMode = 'heightfield';
     if (this.model) {
       this.scene.remove(this.model);
       this.model.traverse(obj => {
@@ -106,6 +118,9 @@ export class Preview3D {
         floor.rotation.x = -Math.PI / 2;
         floor.position.y = -exact.depth;
         this.model.add(floor);
+        this.vectorMask = { project: { ...project }, artwork, compiled: compiled[0]!,
+          top: topMaterial, floor: floorMaterial, resolution: masks.resolution };
+        this.host.dataset.previewMode = 'native-svg-mask';
         exact.top.dispose();
         exact.floor.dispose();
         material.dispose();
@@ -177,6 +192,33 @@ export class Preview3D {
     this.scene.add(this.model);
     this.controls.target.set(0, -project.thickness * 0.25, 0);
     this.controls.update();
+  }
+
+  private projectedPixelsPerMm(): number {
+    const distance = Math.max(1, this.camera.position.distanceTo(this.controls.target));
+    const mmPerPixel = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) *
+      distance / Math.max(1, this.host.clientHeight * this.renderer.getPixelRatio());
+    return Math.max(8, 2 / mmPerPixel);
+  }
+
+  // The masks are rasterized *only at the display boundary* from the original
+  // parametric SVG (not from CAM paths). Regenerate after camera zoom so the
+  // temporary display texture does not become a visibly pixelated engraving.
+  private refineVectorMasks(): void {
+    const state = this.vectorMask;
+    if (!state) return;
+    const request = this.projectedPixelsPerMm();
+    const max = 6144 / Math.max(state.project.width, state.project.height);
+    if (request <= state.resolution * 1.4 || state.resolution >= max * 0.99) return;
+    const next = makeVectorMasks(state.artwork, state.project, state.compiled, request);
+    const oldTop = state.top.alphaMap, oldFloor = state.floor.alphaMap;
+    state.top.alphaMap = next.top;
+    state.floor.alphaMap = next.floor;
+    state.resolution = next.resolution;
+    state.top.needsUpdate = true;
+    state.floor.needsUpdate = true;
+    oldTop?.dispose();
+    oldFloor?.dispose();
   }
 
   resetCamera(project: Project): void {
