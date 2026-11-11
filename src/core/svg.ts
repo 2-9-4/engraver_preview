@@ -59,8 +59,10 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
     for (const shape of root.querySelectorAll<SVGGeometryElement>(geometryTags)) {
       if (shape.closest('defs,symbol,clipPath,mask,pattern')) continue;
       const style = getComputedStyle(shape);
-      const color = paintHex(style.stroke);
-      if (!color || style.display === 'none' || Number(style.strokeOpacity) === 0 || Number(style.opacity) === 0) continue;
+      const strokeColor = Number(style.strokeOpacity) > 0 ? paintHex(style.stroke) : null;
+      const fillColor = Number(style.fillOpacity) > 0 ? paintHex(style.fill) : null;
+      const color = strokeColor || fillColor;
+      if (!color || style.display === 'none' || Number(style.opacity) === 0) continue;
       const ctm = shape.getCTM();
       if (!ctm) continue;
       // Preserve parametric segments (lines, quadratic/cubic Béziers and SVG arcs)
@@ -92,7 +94,8 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
         }
         return segments.map(curve => ({ curve, ctm: transform }));
       })).filter(subpath => subpath.length);
-      if (curves.length) result.push({ color, curves, points: [] });
+      if (curves.length) result.push({ color, fillColor,
+        fillRule: style.fillRule === 'evenodd' ? 'evenodd' : 'nonzero', curves, points: [] });
     }
   } finally {
     root.remove();
@@ -118,10 +121,18 @@ export async function loadArtwork(file: File): Promise<Artwork> {
   let strokes: VectorStroke[] = [];
   if (svg) {
     const root = sanitize(await file.text());
+    // Preserve original user-unit geometry before normalizing the displayed
+    // image dimensions. Setting the viewBox *after* scaling dimensions used to
+    // clip SVGs without a viewBox (e.g. a 1024-unit ring at x=724 became
+    // clipped by a synthetic 512-unit viewBox).
+    if (!root.hasAttribute('viewBox')) {
+      const originalW = Number.parseFloat(root.getAttribute('width') || '') || 512;
+      const originalH = Number.parseFloat(root.getAttribute('height') || '') || 512;
+      root.setAttribute('viewBox', '0 0 ' + originalW + ' ' + originalH);
+    }
     const { width, height } = svgDimension(root);
     root.setAttribute('width', String(width));
     root.setAttribute('height', String(height));
-    if (!root.hasAttribute('viewBox')) root.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
     // Collect native SVG centerline paths before serializing to an image-only URL.
     strokes = extractStrokes(root, width, height);
     root.removeAttribute('style');

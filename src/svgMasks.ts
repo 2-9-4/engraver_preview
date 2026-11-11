@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Artwork, CompiledOperation, Project } from './types';
+import type { Artwork, CompiledOperation, Project, VectorStroke } from './types';
 
 /**
  * Draw the ORIGINAL SVG's analytic curves using the browser's native vector
@@ -23,12 +23,34 @@ export function svgPathForOperation(artwork: Artwork, project: Project, compiled
   const native = artwork.strokes.filter(stroke =>
     op.channel !== 'color' || stroke.color.toLowerCase() === op.color.toLowerCase()
   );
+  return svgPathFromStrokes(artwork, project, native, pxPerMm);
+}
+
+/** Shared SVG-to-stock transform. Native curves remain parametric; opt-in
+ * recovered centerlines are already polylines in normalized artwork coordinates.
+ */
+export function svgPathFromStrokes(
+  artwork: Artwork, project: Project, native: VectorStroke[], pxPerMm: number
+): Path2D {
   const scale = Math.min(project.width / artwork.image.naturalWidth, project.height / artwork.image.naturalHeight);
   const offsetX = (project.width - artwork.image.naturalWidth * scale) / 2;
   const offsetY = (project.height - artwork.image.naturalHeight * scale) / 2;
   const result = new Path2D();
   for (const stroke of native) {
-    if (!stroke.curves) throw new Error('SVG primitive data unavailable for vector preview');
+    if (!stroke.curves?.length && stroke.points.length > 1) {
+      const toMachine = (point: {x: number; y: number}) => ({
+        x: pxPerMm * (offsetX + point.x * artwork.image.naturalWidth * scale),
+        y: pxPerMm * (project.height - offsetY - point.y * artwork.image.naturalHeight * scale),
+      });
+      const first = toMachine(stroke.points[0]!);
+      result.moveTo(first.x, first.y);
+      for (const point of stroke.points.slice(1)) {
+        const p = toMachine(point);
+        result.lineTo(p.x, p.y);
+      }
+      continue;
+    }
+    if (!stroke.curves) continue;
     for (const subpath of stroke.curves) {
       if (!subpath.length) continue;
       // Keep EACH native SVG subpath as ONE continuous Path2D. Previously

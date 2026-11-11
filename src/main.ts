@@ -7,6 +7,7 @@ import { compileOperation } from './core/toolpaths';
 import { simulateSurface } from './core/simulate';
 import { generateGcode } from './core/gcode';
 import { loadArtwork } from './core/svg';
+import { recoverFilledSvgCenterlines } from './core/filledCenterlines';
 import { Preview3D } from './preview';
 import type { StockMaterial } from './materials';
 import { defaultPlywoodSettings, parsePlyThicknesses, validatePlywoodSettings, type PlywoodSettings } from './plywood';
@@ -21,6 +22,7 @@ const project: Project = { ...defaultProject };
 const prep: Preprocess = { ...defaultPreprocess };
 const machine: Machine = { ...defaultMachine };
 let artwork: Artwork | null = null;
+let recoveredArtwork: Artwork | null = null;
 let pixels: Pixels | null = null;
 let operations: Operation[] = [newOperation({ name: 'Main engraving' })];
 let compiled: CompiledOperation[] = [];
@@ -77,6 +79,11 @@ function renderOperations(): void {
       '<div class="op-fields">',
       field(id, 'name', 'Label', op.name, 'text', 'maxlength="80"'),
       selectField(id, 'mode', 'Path strategy', op.mode, [['raster', 'Raster scanlines'], ['vector', 'SVG stroke paths']]),
+      op.mode === 'vector' ?
+        '<label class="checkline"><input type="checkbox" data-op="' + id + '" data-key="centerlineFilled"' +
+        (op.centerlineFilled ? ' checked' : '') +
+        '><span>Convert filled SVG bands to single centerlines</span></label>' +
+        '<p class="hint">For SVGs made by outlining thick lines. Approximates the middle of each filled region instead of cutting both edges; check the result before machining.</p>' : '',
       selectField(id, 'channel', op.mode === 'vector' ? 'Stroke color filter' : 'Depth source', op.channel, op.mode === 'vector'
         ? [['luma', 'All SVG strokes'], ['color', 'Matching stroke color']]
         : channels),
@@ -114,9 +121,15 @@ function build(): void {
     const maxDimension = 410;
     const scale = maxDimension / Math.max(project.width, project.height);
     pixels = preprocess(artwork, Math.max(1, Math.round(project.width * scale)), Math.max(1, Math.round(project.height * scale)), prep);
-    compiled = operations.filter(o => o.enabled).map(o => compileOperation(project, pixels!, artwork!, prep, o));
+    const active = operations.filter(o => o.enabled);
+    const useCenters = active.some(o => o.mode === 'vector' && o.centerlineFilled);
+    if (useCenters && !recoveredArtwork) recoveredArtwork = recoverFilledSvgCenterlines(artwork);
+    compiled = active.map(o => compileOperation(project, pixels!, o.mode === 'vector' && o.centerlineFilled
+      ? recoveredArtwork! : artwork!, prep, o));
     const surface = simulateSurface(project, compiled);
-    preview.setSurface(project, surface, compiled, stockMaterial, artwork, plywoodSettings);
+    const visualArtwork = compiled.length === 1 && compiled[0]!.operation.mode === 'vector' &&
+      compiled[0]!.operation.centerlineFilled ? recoveredArtwork! : artwork;
+    preview.setSurface(project, surface, compiled, stockMaterial, visualArtwork, plywoodSettings);
     renderImagePreview();
     el('header-size').textContent = project.width + ' × ' + project.height + ' mm';
     el('stat-operations').textContent = String(compiled.length);
@@ -126,7 +139,9 @@ function build(): void {
     const minutes = compiled.reduce((sum, item) => sum + item.length / item.operation.feed * Math.ceil(item.operation.depth / item.operation.passDepth), 0);
     el('stat-time').textContent = minutes < 60 ? minutes.toFixed(0) + ' min' : (minutes / 60).toFixed(1) + ' h';
     const segments = compiled.reduce((sum, item) => sum + item.paths.length, 0);
-    status(segments.toLocaleString() + ' toolpath segments · preview based on swept cutter geometry');
+    status(segments.toLocaleString() + ' toolpath segments · ' +
+      (useCenters ? 'approximate filled-shape centerlines' : 'preview based on swept cutter geometry'));
+    el('viewport').dataset.svgInterpretation = useCenters ? 'filled-centerlines' : 'native-outlines';
     renderGcodePreview();
   } catch (error) {
     status(error instanceof Error ? error.message : String(error), true);
@@ -176,6 +191,7 @@ async function importFile(file: File): Promise<void> {
   try {
     const loaded = await loadArtwork(file);
     artwork = loaded;
+    recoveredArtwork = null;
     el('source-name').textContent = file.name;
     el('source-type').textContent = (loaded.isSVG ? 'SVG · ' + loaded.strokes.length + ' vector stroke paths' : 'Raster image') + ' · ' + loaded.image.naturalWidth + ' × ' + loaded.image.naturalHeight;
     el('file-label').textContent = file.name;
@@ -208,7 +224,9 @@ function splitColors(): void {
     if (distinct.length === 6) break;
   }
   if (!distinct.length) { status('No strong non-white colors detected'); return; }
+  const keepCenters = operations.some(op => op.mode === 'vector' && op.centerlineFilled);
   operations = distinct.map((color, i) => newOperation({
+    centerlineFilled: keepCenters,
     name: 'Color ' + (i + 1) + ' · ' + color,
     channel: 'color', color, tolerance: 80,
     mode: artwork!.isSVG && artwork!.strokes.some(s => s.color === color) ? 'vector' : 'raster',
@@ -314,7 +332,9 @@ function initEvents(): void {
   });
   updatePlywoodControls();
   el('add-op').addEventListener('click', () => {
-    const next = newOperation({ name: 'Additional engraving', mode: artwork?.isSVG && artwork.strokes.length > 0 ? 'vector' : 'raster' });
+    const next = newOperation({ name: 'Additional engraving',
+      mode: artwork?.isSVG && artwork.strokes.length > 0 ? 'vector' : 'raster',
+      centerlineFilled: operations.find(op => op.id === selectedId)?.centerlineFilled ?? false });
     operations.push(next); selectedId = next.id; renderOperations(); schedule();
   });
   el('split-colors').addEventListener('click', splitColors);
@@ -339,7 +359,7 @@ function initEvents(): void {
     const op = operations.find(o => o.id === input.dataset.op);
     const key = input.dataset.key as keyof Operation | undefined;
     if (!op || !key) return;
-    if (key === 'enabled') op.enabled = (input as HTMLInputElement).checked;
+    if (key === 'enabled' || key === 'centerlineFilled') op[key] = (input as HTMLInputElement).checked;
     else if (key === 'name' || key === 'mode' || key === 'channel' || key === 'tool' || key === 'color') {
       (op as unknown as Record<string, string>)[key] = input.value;
     } else {
