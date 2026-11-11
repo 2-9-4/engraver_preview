@@ -243,3 +243,80 @@ test('painted plywood exposes editable veneer, ply sequence and paint over all S
   expect(errors).toEqual([]);
   expect(shaders).toEqual([]);
 });
+
+
+test('opt-in filled SVG centerlines collapse outlined colored bands for preview and G-code', async ({ page }) => {
+  test.setTimeout(120000);
+  const pageErrors: string[] = [];
+  page.on('pageerror', e => pageErrors.push(e.message));
+  await page.goto('/');
+  // Synthetic traced bands: each fill has TWO boundary contours but should
+  // yield ONE cutter centerline. Each color must remain independently selectable.
+  const source = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">' +
+    '<rect x="100" y="300" width="824" height="10" fill="#ff0000" stroke="#ff0000" stroke-width="1"/>' +
+    '<rect x="500" y="100" width="10" height="824" fill="#0000ff" stroke="#0000ff" stroke-width="1"/>' +
+    '</svg>';
+  await page.locator('#file-input').setInputFiles({
+    name: 'filled-bands.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(source),
+  });
+  await expect(page.locator('#source-name')).toHaveText('filled-bands.svg', { timeout: 30000 });
+  const toggle = page.locator('[data-key="centerlineFilled"]');
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(page.locator('#viewport')).toHaveAttribute('data-svg-interpretation', 'filled-centerlines', { timeout: 90000 });
+  await expect(page.locator('#status')).toContainText('approximate filled-shape centerlines');
+  await expect(page.locator('#status')).not.toHaveClass(/error/);
+  await expect(page.locator('#viewport')).toHaveAttribute('data-preview-mode', 'native-svg-curved');
+  await expect(page.locator('#gcode-preview')).toHaveValue(/G1 X/);
+
+  const recovered = await page.evaluate(async source => {
+    const { loadArtwork } = await import('/src/core/svg.ts');
+    const { recoverFilledSvgCenterlines } = await import('/src/core/filledCenterlines.ts');
+    const artwork = await loadArtwork(new File([source], 'filled-bands.svg', {type:'image/svg+xml'}));
+    const lines = recoverFilledSvgCenterlines(artwork).strokes;
+    const summary = (color: string) => {
+      const points = lines.filter(s => s.color === color).flatMap(s => s.points);
+      return {
+        count: points.length,
+        minX: Math.min(...points.map(p => p.x)),
+        maxX: Math.max(...points.map(p => p.x)),
+        minY: Math.min(...points.map(p => p.y)),
+        maxY: Math.max(...points.map(p => p.y)),
+      };
+    };
+    return { red: summary('#ff0000'), blue: summary('#0000ff') };
+  }, source);
+  expect(recovered.red.count).toBeGreaterThan(10);
+  expect(recovered.blue.count).toBeGreaterThan(10);
+  expect(recovered.red.maxY - recovered.red.minY).toBeLessThan(0.025);
+  expect(recovered.blue.maxX - recovered.blue.minX).toBeLessThan(0.025);
+  expect(recovered.red.maxX - recovered.red.minX).toBeGreaterThan(0.5);
+  expect(recovered.blue.maxY - recovered.blue.minY).toBeGreaterThan(0.5);
+
+  await toggle.uncheck();
+  await expect(page.locator('#viewport')).toHaveAttribute('data-svg-interpretation', 'native-outlines', {timeout:30000});
+  expect(pageErrors).toEqual([]);
+});
+
+test('centerline mode excludes stroke-only SVG paths and supports fill-only sources', async ({ page }) => {
+  await page.goto('/');
+  const output = await page.evaluate(async () => {
+    const { loadArtwork } = await import('/src/core/svg.ts');
+    const { recoverFilledSvgCenterlines } = await import('/src/core/filledCenterlines.ts');
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">' +
+      '<rect x="100" y="500" width="824" height="10" fill="#ff0000" stroke="none"/>' +
+      '<path d="M100 700 H924" fill="none" stroke="#0000ff"/></svg>';
+    const artwork = await loadArtwork(new File([source], 'mixed.svg', {type:'image/svg+xml'}));
+    const recovered = recoverFilledSvgCenterlines(artwork);
+    return {
+      originalColors: artwork.strokes.map(s => s.color),
+      centerColors: recovered.strokes.map(s => s.color),
+      count: recovered.strokes.flatMap(s => s.points).length,
+    };
+  });
+  expect(output.originalColors).toContain('#ff0000');
+  expect(output.originalColors).toContain('#0000ff');
+  expect(output.centerColors).toContain('#ff0000');
+  expect(output.centerColors).not.toContain('#0000ff');
+  expect(output.count).toBeGreaterThan(10);
+});
