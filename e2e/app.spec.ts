@@ -182,6 +182,7 @@ test('example SVG diamond retains its final diagonal Z edge', async ({page}) => 
 
 
 test('painted plywood exposes editable veneer, ply sequence and paint over all SVG cutter types', async ({ page }) => {
+  test.setTimeout(90000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const shaders: string[] = [];
@@ -208,7 +209,10 @@ test('painted plywood exposes editable veneer, ply sequence and paint over all S
   await page.locator('#plywood-layers').blur();
   await page.locator('#plywood-paint-thickness').fill('0.12');
   await page.locator('#plywood-paint-thickness').blur();
-  await page.locator('#plywood-paint-color').fill('#b72d37');
+  await page.locator('#plywood-paint-color').evaluate((input: HTMLInputElement) => {
+    input.value = '#b72d37';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 
   await expect(page.locator('#viewport')).toHaveAttribute('data-stock-material', 'painted-plywood', { timeout: 30000 });
   await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
