@@ -159,3 +159,23 @@ test('independently closes multiple Z subpaths without joining separate shapes',
   expect(Math.hypot(result[0]!.start[0]! - result[1]!.start[0]!,
     result[0]!.start[1]! - result[1]!.start[1]!)).toBeGreaterThan(40);
 });
+
+
+test('example SVG diamond retains its final diagonal Z edge', async ({page}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const {loadArtwork} = await import('/src/core/svg.ts');
+    const {nativeStrokeToolpaths} = await import('/src/core/nativeCurves.ts');
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480">' +
+      '<path d="M195 240 L320 100 L445 240 L320 380 Z" fill="none" stroke="#a05d38"/></svg>';
+    const artwork = await loadArtwork(new File([source], 'demo-diamond.svg', {type:'image/svg+xml'}));
+    const toolpaths = nativeStrokeToolpaths({width:640,height:480,thickness:12,resolution:170},
+      artwork, artwork.strokes[0]!, 1);
+    return toolpaths.map(path => path.map(p => ({ x:p.x, y:p.y })));
+  });
+  expect(result).toHaveLength(1);
+  expect(result[0]).toHaveLength(5);
+  expect(result[0]![0]!.x).toBeCloseTo(195);
+  expect(result[0]![4]!.x).toBeCloseTo(195);
+  expect(result[0]![0]!.y).toBeCloseTo(result[0]![4]!.y);
+});
