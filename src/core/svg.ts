@@ -121,10 +121,18 @@ export async function loadArtwork(file: File): Promise<Artwork> {
   let strokes: VectorStroke[] = [];
   if (svg) {
     const root = sanitize(await file.text());
+    // Preserve original user-unit geometry before normalizing the displayed
+    // image dimensions. Setting the viewBox *after* scaling dimensions used to
+    // clip SVGs without a viewBox (e.g. a 1024-unit ring at x=724 became
+    // clipped by a synthetic 512-unit viewBox).
+    if (!root.hasAttribute('viewBox')) {
+      const originalW = Number.parseFloat(root.getAttribute('width') || '') || 512;
+      const originalH = Number.parseFloat(root.getAttribute('height') || '') || 512;
+      root.setAttribute('viewBox', '0 0 ' + originalW + ' ' + originalH);
+    }
     const { width, height } = svgDimension(root);
     root.setAttribute('width', String(width));
     root.setAttribute('height', String(height));
-    if (!root.hasAttribute('viewBox')) root.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
     // Collect native SVG centerline paths before serializing to an image-only URL.
     strokes = extractStrokes(root, width, height);
     root.removeAttribute('style');
