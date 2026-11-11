@@ -32,8 +32,20 @@
       </section>
       <section class="section">
         <div class="section-heading"><span class="eyebrow">MATERIAL PREVIEW</span><h2>Surface finish</h2></div>
-        <label class="field"><span>Material</span><select id="stock-material"><option value="mdf">MDF · fiberboard</option><option value="plywood">Plywood · layered veneer</option><option value="colorcore">Color-core · painted surface</option></select></label>
-        <p class="hint">Plywood shows grain on the face and alternating 1.5 mm plies inside cuts. Color-core reveals a pale core below a dark surface layer. Appearance only; G-code is unaffected.</p>
+        <label class="field"><span>Material</span><select id="stock-material"><option value="mdf">MDF · fiberboard</option><option value="plywood">Plywood · layered veneer</option><option value="painted-plywood">Plywood · painted top</option><option value="colorcore">Color-core · painted surface</option></select></label>
+        <div id="plywood-options" class="material-options" hidden>
+          <label class="field"><span>Top face veneer thickness · mm</span><input id="plywood-top-veneer" data-plywood="topVeneerThickness" type="number" min="0.01" max="150" step="0.05" value="0.6"></label>
+          <label class="field"><span>Underlying ply thicknesses · mm</span><input id="plywood-layers" data-plywood="layerThicknesses" type="text" value="1.5" placeholder="1.5, 0.8, 1.5" spellcheck="false"></label>
+          <p class="hint material-hint">The comma-separated sequence repeats down to the bottom of the board. Each ply is a separate layer; the face veneer is independent.</p>
+          <div id="painted-plywood-options" class="material-options-paint" hidden>
+            <div class="field-grid">
+              <label class="field"><span>Paint thickness · mm</span><input id="plywood-paint-thickness" data-plywood="paintThickness" type="number" min="0" max="20" step="0.01" value="0.15"></label>
+              <label class="field"><span>Paint color</span><input id="plywood-paint-color" data-plywood="paintColor" type="color" value="#182934"></label>
+            </div>
+            <p class="hint material-hint">Shallow cuts retain paint; deeper cuts expose the veneer and then the plywood core.</p>
+          </div>
+        </div>
+        <p class="hint">Plywood shows individual exposed plies in cut walls. Color-core reveals a pale core below a dark face. Materials change appearance only, not G-code.</p>
       </section>
       <section class="section">
         <div class="section-heading"><span class="eyebrow">02 / IMAGE PROCESSING</span><h2>Pre-process</h2></div>
