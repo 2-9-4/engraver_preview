@@ -225,16 +225,25 @@ export function recoverFilledSvgCenterlines(artwork: Artwork): Artwork {
       ctx.fill(path, shape.fillRule || 'nonzero');
     }
     const rgba = ctx.getImageData(0, 0, width, height).data;
-    const pixels = new Uint8Array(width * height);
-    for (let i = 0; i < pixels.length; i++) pixels[i] = rgba[i * 4 + 3]! >= 128 ? 1 : 0;
-    thinBinaryMask(pixels, width, height);
-    const lines = traceSkeleton(pixels, width, height);
+    // An empty halo is essential for paths crossing the artwork boundary.
+    // Without it thinning refuses to remove outermost pixels and leaves
+    // artificial duplicate/border-following skeletons at the frame edges.
+    const pad = 2, paddedWidth = width + 2 * pad, paddedHeight = height + 2 * pad;
+    const pixels = new Uint8Array(paddedWidth * paddedHeight);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        pixels[(y + pad) * paddedWidth + x + pad] =
+          rgba[4 * (y * width + x) + 3]! >= 128 ? 1 : 0;
+      }
+    }
+    thinBinaryMask(pixels, paddedWidth, paddedHeight);
+    const lines = traceSkeleton(pixels, paddedWidth, paddedHeight);
     for (const line of lines) {
       // svgPathFromStrokes renders machine Y-up on Canvas; convert its points
       // back into the normalized SVG top-left system shared by other strokes.
       const points = line.map(p => ({
-        x: Math.max(0, Math.min(1, p.x / width)),
-        y: Math.max(0, Math.min(1, 1 - p.y / height)),
+        x: Math.max(0, Math.min(1, (p.x - pad) / width)),
+        y: Math.max(0, Math.min(1, 1 - (p.y - pad) / height)),
       }));
       if (points.length > 1) output.push({ color, points });
     }
