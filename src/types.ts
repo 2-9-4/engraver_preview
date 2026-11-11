@@ -6,6 +6,9 @@ export type OperationMode = 'raster' | 'vector';
 
 export interface VectorStroke {
   color: string;
+  // Computed SVG fill, used only when explicitly converting filled bands to centerlines.
+  fillColor?: string | null;
+  fillRule?: 'nonzero' | 'evenodd';
   // Original SVG parametric curves. Never resample these during import.
   curves?: Array<Array<{ curve: Curve<Vector2>; ctm: [number, number, number, number, number, number] }>>;
   points: Array<{ x: number; y: number }>; // legacy fallback, empty for native SVG curves
@@ -38,6 +41,7 @@ export interface Operation {
   name: string;
   enabled: boolean;
   mode: OperationMode;
+  centerlineFilled: boolean;
   channel: Channel;
   color: string;
   tolerance: number;
@@ -92,6 +96,7 @@ export function newOperation(partial: Partial<Operation> = {}): Operation {
     name: 'Engraving ' + nextId,
     enabled: true,
     mode: 'raster',
+    centerlineFilled: false,
     channel: 'luma',
     color: '#282828',
     tolerance: 70,
