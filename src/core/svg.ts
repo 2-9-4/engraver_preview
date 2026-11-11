@@ -59,8 +59,10 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
     for (const shape of root.querySelectorAll<SVGGeometryElement>(geometryTags)) {
       if (shape.closest('defs,symbol,clipPath,mask,pattern')) continue;
       const style = getComputedStyle(shape);
-      const color = paintHex(style.stroke);
-      if (!color || style.display === 'none' || Number(style.strokeOpacity) === 0 || Number(style.opacity) === 0) continue;
+      const strokeColor = Number(style.strokeOpacity) > 0 ? paintHex(style.stroke) : null;
+      const fillColor = Number(style.fillOpacity) > 0 ? paintHex(style.fill) : null;
+      const color = strokeColor || fillColor;
+      if (!color || style.display === 'none' || Number(style.opacity) === 0) continue;
       const ctm = shape.getCTM();
       if (!ctm) continue;
       // Preserve parametric segments (lines, quadratic/cubic Béziers and SVG arcs)
@@ -92,7 +94,8 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
         }
         return segments.map(curve => ({ curve, ctm: transform }));
       })).filter(subpath => subpath.length);
-      if (curves.length) result.push({ color, curves, points: [] });
+      if (curves.length) result.push({ color, fillColor,
+        fillRule: style.fillRule === 'evenodd' ? 'evenodd' : 'nonzero', curves, points: [] });
     }
   } finally {
     root.remove();
