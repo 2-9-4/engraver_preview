@@ -1,10 +1,15 @@
+import { defaultPlywoodSettings, plywoodShaderLogic, validatePlywoodSettings, type PlywoodSettings } from './plywood';
 import * as THREE from 'three';
 
-export type StockMaterial = 'mdf' | 'plywood' | 'colorcore';
+export type StockMaterial = 'mdf' | 'plywood' | 'painted-plywood' | 'colorcore';
 
-export function createStockMaterial(kind: StockMaterial, side = false): THREE.MeshStandardMaterial {
+export function createStockMaterial(
+  kind: StockMaterial, side = false, plywood: PlywoodSettings = defaultPlywoodSettings,
+): THREE.MeshStandardMaterial {
+  const isPlywood = kind === 'plywood' || kind === 'painted-plywood';
+  if (isPlywood) validatePlywoodSettings(plywood);
   const material = new THREE.MeshStandardMaterial({
-    color: '#ffffff', roughness: kind === 'colorcore' ? 0.68 : 0.94,
+    color: '#ffffff', roughness: kind === 'colorcore' || kind === 'painted-plywood' ? 0.68 : 0.94,
     metalness: 0, side: THREE.DoubleSide, flatShading: !side,
   });
   material.onBeforeCompile = shader => {
@@ -35,14 +40,7 @@ export function createStockMaterial(kind: StockMaterial, side = false): THREE.Me
       float dust = hashWood(floor(vStockPosition.xz * 19.0 - vStockPosition.y * 7.0));
       vec3 pigment = vec3(0.64, 0.46, 0.30);
       pigment *= 0.88 + 0.17 * fleck + 0.055 * dust;
-    ` : kind === 'plywood' ? `
-      float ply = floor((-vStockPosition.y + 0.0001) / 1.5);
-      float alternating = mod(ply, 2.0);
-      float woodgrain = grainWood(vStockPosition.xz * vec2(1.0, 1.2));
-      vec3 pigment = mix(vec3(0.76, 0.53, 0.31), vec3(0.54, 0.34, 0.20), alternating);
-      pigment *= 0.91 + 0.16 * woodgrain;
-      // Cross-sections reveal alternating veneer plies, including the core.
-    ` : `
+    ` : kind === 'plywood' || kind === 'painted-plywood' ? plywoodShaderLogic(kind, plywood): `
       float finish = smoothstep(-0.16, -0.09, vStockPosition.y);
       float noise = hashWood(floor(vStockPosition.xz * 5.0));
       vec3 core = vec3(0.77, 0.67, 0.49) * (0.96 + 0.07 * noise);
@@ -52,6 +50,13 @@ export function createStockMaterial(kind: StockMaterial, side = false): THREE.Me
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
       '#include <color_fragment>\n' + materialLogic + '\ndiffuseColor.rgb *= pigment;');
   };
-  material.customProgramCacheKey = () => kind + (side ? '-side' : '-face');
+  // The shader changes when the layup changes. Do not reuse an old compiled
+  // program for a different face veneer, ply sequence or painted coating.
+  material.customProgramCacheKey = () => [
+    kind, side ? 'side' : 'face',
+    ...(isPlywood ? [plywood.topVeneerThickness, plywood.layerThicknesses.join(','),
+      kind === 'painted-plywood' ? plywood.paintThickness : 0,
+      kind === 'painted-plywood' ? plywood.paintColor : ''] : []),
+  ].join(':');
   return material;
 }

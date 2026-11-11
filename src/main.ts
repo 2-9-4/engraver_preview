@@ -9,6 +9,7 @@ import { generateGcode } from './core/gcode';
 import { loadArtwork } from './core/svg';
 import { Preview3D } from './preview';
 import type { StockMaterial } from './materials';
+import { defaultPlywoodSettings, parsePlyThicknesses, validatePlywoodSettings, type PlywoodSettings } from './plywood';
 
 const el = <T extends HTMLElement>(id: string): T => {
   const element = document.getElementById(id);
@@ -27,6 +28,8 @@ let selectedId = operations[0]!.id;
 let renderTimer: number | undefined;
 let running = false;
 let stockMaterial: StockMaterial = 'mdf';
+const plywoodSettings: PlywoodSettings = { ...defaultPlywoodSettings,
+  layerThicknesses: [...defaultPlywoodSettings.layerThicknesses] };
 const preview = new Preview3D(el('viewport'));
 
 function status(message: string, error = false): void {
@@ -113,7 +116,7 @@ function build(): void {
     pixels = preprocess(artwork, Math.max(1, Math.round(project.width * scale)), Math.max(1, Math.round(project.height * scale)), prep);
     compiled = operations.filter(o => o.enabled).map(o => compileOperation(project, pixels!, artwork!, prep, o));
     const surface = simulateSurface(project, compiled);
-    preview.setSurface(project, surface, compiled, stockMaterial, artwork);
+    preview.setSurface(project, surface, compiled, stockMaterial, artwork, plywoodSettings);
     renderImagePreview();
     el('header-size').textContent = project.width + ' × ' + project.height + ' mm';
     el('stat-operations').textContent = String(compiled.length);
@@ -264,6 +267,35 @@ function exportAll(): void {
   } catch (error) { status(String(error), true); }
 }
 
+function updatePlywoodControls(): void {
+  const isPlywood = stockMaterial === 'plywood' || stockMaterial === 'painted-plywood';
+  el('plywood-options').hidden = !isPlywood;
+  el('painted-plywood-options').hidden = stockMaterial !== 'painted-plywood';
+}
+
+function editPlywoodSetting(input: HTMLInputElement): void {
+  const key = input.dataset.plywood as keyof PlywoodSettings | undefined;
+  if (!key) return;
+  try {
+    const value: number | string | number[] = key === 'layerThicknesses'
+      ? parsePlyThicknesses(input.value)
+      : key === 'paintColor' ? input.value : Number(input.value);
+    const next: PlywoodSettings = { ...plywoodSettings, layerThicknesses: [...plywoodSettings.layerThicknesses] };
+    if (key === 'layerThicknesses') next.layerThicknesses = value as number[];
+    else if (key === 'paintColor') next.paintColor = value as string;
+    else if (key === 'topVeneerThickness') next.topVeneerThickness = value as number;
+    else if (key === 'paintThickness') next.paintThickness = value as number;
+    validatePlywoodSettings(next);
+    Object.assign(plywoodSettings, next);
+    input.setCustomValidity('');
+    schedule();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    input.setCustomValidity(message);
+    status(message, true);
+  }
+}
+
 function initEvents(): void {
   el<HTMLInputElement>('file-input').addEventListener('change', e => {
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
@@ -273,8 +305,14 @@ function initEvents(): void {
   el('demo-btn').addEventListener('click', loadDemo);
   el<HTMLSelectElement>('stock-material').addEventListener('change', e => {
     stockMaterial = (e.currentTarget as HTMLSelectElement).value as StockMaterial;
+    updatePlywoodControls();
     schedule();
   });
+  document.querySelectorAll<HTMLInputElement>('[data-plywood]').forEach(input => {
+    input.addEventListener('change', () => editPlywoodSetting(input));
+    if (input.type === 'color') input.addEventListener('input', () => editPlywoodSetting(input));
+  });
+  updatePlywoodControls();
   el('add-op').addEventListener('click', () => {
     const next = newOperation({ name: 'Additional engraving', mode: artwork?.isSVG && artwork.strokes.length > 0 ? 'vector' : 'raster' });
     operations.push(next); selectedId = next.id; renderOperations(); schedule();

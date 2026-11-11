@@ -179,3 +179,67 @@ test('example SVG diamond retains its final diagonal Z edge', async ({page}) => 
   expect(result[0]![4]!.x).toBeCloseTo(195);
   expect(result[0]![0]!.y).toBeCloseTo(result[0]![4]!.y);
 });
+
+
+test('painted plywood exposes editable veneer, ply sequence and paint over all SVG cutter types', async ({ page }) => {
+  test.setTimeout(90000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const shaders: string[] = [];
+  page.on('console', message => {
+    if (message.type() === 'error' && /WebGLProgram|shader error|GL_INVALID/i.test(message.text()))
+      shaders.push(message.text());
+  });
+  await page.goto('/');
+  await expect(page.locator('#source-name')).toHaveText('sample-geometric-engraving.svg', { timeout: 30000 });
+
+  const select = page.locator('#stock-material');
+  const panel = page.locator('#plywood-options');
+  const paintPanel = page.locator('#painted-plywood-options');
+  await expect(panel).toBeHidden();
+  await select.selectOption('plywood');
+  await expect(panel).toBeVisible();
+  await expect(paintPanel).toBeHidden();
+  await expect(page.locator('#viewport')).toHaveAttribute('data-stock-material', 'plywood', { timeout: 30000 });
+  const plainPlywoodImage = await page.locator('#viewport canvas').screenshot();
+  await select.selectOption('painted-plywood');
+  await expect(paintPanel).toBeVisible();
+  await expect(page.locator('#viewport')).toHaveAttribute('data-stock-material', 'painted-plywood', { timeout: 30000 });
+  const paintedPlywoodImage = await page.locator('#viewport canvas').screenshot();
+  expect(paintedPlywoodImage.equals(plainPlywoodImage)).toBe(false);
+
+  await page.locator('#plywood-top-veneer').fill('0.45');
+  await page.locator('#plywood-top-veneer').blur();
+  await page.locator('#plywood-layers').fill('0.9, 1.5, 2.1');
+  await page.locator('#plywood-layers').blur();
+  await page.locator('#plywood-paint-thickness').fill('0.12');
+  await page.locator('#plywood-paint-thickness').blur();
+  await page.locator('#plywood-paint-color').evaluate((input: HTMLInputElement) => {
+    input.value = '#b72d37';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  await expect(page.locator('#viewport')).toHaveAttribute('data-stock-material', 'painted-plywood', { timeout: 30000 });
+  await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
+  for (const cutter of ['vbit', 'ball', 'flat']) {
+    await page.locator('[data-key="tool"]').selectOption(cutter);
+    await expect(page.locator('#viewport')).toHaveAttribute('data-preview-mode',
+      cutter === 'flat' ? 'native-svg-mask' : 'native-svg-curved', { timeout: 30000 });
+    await expect(page.locator('#status')).not.toHaveClass(/error/);
+  }
+
+  // Invalid ply patterns must not be silently converted into valid but wrong layers.
+  await page.locator('#plywood-layers').fill('1.5, nope');
+  await page.locator('#plywood-layers').blur();
+  expect(await page.locator('#plywood-layers').evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+  await expect(page.locator('#plywood-layers')).toHaveCSS('border-color', 'rgb(219, 139, 117)');
+  await page.locator('#plywood-layers').fill('1.5');
+  await page.locator('#plywood-layers').blur();
+  await expect(page.locator('#status')).toContainText('toolpath segments', { timeout: 30000 });
+  await expect(page.locator('#plywood-layers')).toHaveJSProperty('validationMessage', '');
+
+  await select.selectOption('mdf');
+  await expect(panel).toBeHidden();
+  expect(errors).toEqual([]);
+  expect(shaders).toEqual([]);
+});

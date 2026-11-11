@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Artwork, CompiledOperation, Operation, Project } from './types';
 import { svgPathForOperation } from './svgMasks';
 import { createStockMaterial, type StockMaterial } from './materials';
+import { defaultPlywoodSettings, type PlywoodSettings } from './plywood';
 
 export const DISTANCE_MAX_PX = 2560;
 export const CURVE_MESH_MAX = 1050;
@@ -218,7 +219,7 @@ export function buildCurvedStockGeometry(
  */
 export function makeCurvedPreview(
   project: Project, artwork: Artwork, compiled: CompiledOperation,
-  stock: StockMaterial, pxPerMm: number,
+  stock: StockMaterial, pxPerMm: number, plywood: PlywoodSettings = defaultPlywoodSettings,
 ): { group: THREE.Group; density: number; dispose: () => void } {
   const op = compiled.operation;
   if (op.mode !== 'vector' || (op.tool !== 'ball' && op.tool !== 'vbit'))
@@ -226,8 +227,8 @@ export function makeCurvedPreview(
   const field = makeNativeSvgDistanceField(artwork, project, compiled, pxPerMm);
   const density = Math.max(6, field.width / project.width / 2);
   const geometry = buildCurvedStockGeometry(project, field, op, density);
-  const topMaterial = createStockMaterial(stock, true); // smooth cut profiles
-  const sideMaterial = createStockMaterial(stock, false); // crisp stock edges
+  const topMaterial = createStockMaterial(stock, true, plywood); // smooth cut profiles
+  const sideMaterial = createStockMaterial(stock, false, plywood); // crisp stock edges
   const mesh = new THREE.Mesh(geometry, [topMaterial, sideMaterial]);
   const group = new THREE.Group();
   group.add(mesh);

@@ -1,3 +1,5 @@
+import { defaultPlywoodSettings, parsePlyThicknesses, plywoodLayerAtDepth, plywoodShaderLogic, validatePlywoodSettings } from '../src/plywood';
+import { createStockMaterial } from '../src/materials';
 import { buildCurvedStockGeometry, cutterProfileAtDistance, cutterSurfaceRadius, distanceAt } from '../src/curvedPreview';
 import { CubicBezierCurve, EllipseCurve, LineCurve, Vector2 } from 'three';
 import { nativeStrokeToolpaths } from '../src/core/nativeCurves';
@@ -305,5 +307,46 @@ describe('watertight V-bit and ball-nose stock geometry', () => {
   });
   it('builds a single closed, consistently wound ball-nose block around a square', () => {
     validateClosedSolid('ball');
+  });
+});
+
+
+describe('editable plywood material layup', () => {
+  const options = {
+    ...defaultPlywoodSettings, topVeneerThickness: 0.5,
+    layerThicknesses: [1, 2], paintThickness: 0.1, paintColor: '#e13244',
+  };
+  it('accepts exact comma-separated ply thicknesses and rejects malformed values', () => {
+    expect(parsePlyThicknesses('0.6, 1.25, 2')).toEqual([0.6, 1.25, 2]);
+    expect(() => parsePlyThicknesses('1.2,')).toThrow();
+    expect(() => parsePlyThicknesses('0,1')).toThrow();
+    expect(() => parsePlyThicknesses('1, Infinity')).toThrow();
+    expect(() => validatePlywoodSettings({...options, topVeneerThickness: -1})).toThrow();
+  });
+  it('distinguishes paint, top veneer and repeating core layers', () => {
+    expect(plywoodLayerAtDepth(0.05, options, true).paint).toBe(true);
+    expect(plywoodLayerAtDepth(0.11, options, true).layerIndex).toBe(0);
+    expect(plywoodLayerAtDepth(0.59, options, true).layerIndex).toBe(0);
+    expect(plywoodLayerAtDepth(0.61, options, true).layerIndex).toBe(1);
+    expect(plywoodLayerAtDepth(1.61, options, true).layerIndex).toBe(2);
+    expect(plywoodLayerAtDepth(3.61, options, true).layerIndex).toBe(3);
+    expect(plywoodLayerAtDepth(0.05, options, false).paint).toBe(false);
+    expect(plywoodLayerAtDepth(0.5, options, false).layerIndex).toBe(1);
+    expect(plywoodLayerAtDepth(1.5, options, false).layerIndex).toBe(2);
+  });
+  it('generates real plywood layers and a separately colored thin coating in the shader', () => {
+    const paint = plywoodShaderLogic('painted-plywood', options);
+    const plain = plywoodShaderLogic('plywood', options);
+    expect(paint).toContain('materialDepth < 0.100000');
+    expect(paint).toContain('woodDepth - 0.500000');
+    expect(paint).toContain('withinCycle >= 1.000000');
+    expect(plain).not.toContain('pigment = vec3(');
+    expect(plain).toContain('materialDepth - 0.000000');
+    const a = createStockMaterial('painted-plywood', true, options);
+    const b = createStockMaterial('painted-plywood', true, {...options, topVeneerThickness: 0.7});
+    const c = createStockMaterial('plywood', true, options);
+    expect(a.customProgramCacheKey()).not.toBe(b.customProgramCacheKey());
+    expect(a.customProgramCacheKey()).not.toBe(c.customProgramCacheKey());
+    a.dispose(); b.dispose(); c.dispose();
   });
 });
