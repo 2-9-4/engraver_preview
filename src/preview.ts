@@ -5,6 +5,7 @@ import { makeVectorMasks } from './svgMasks';
 import { makeCurvedPreview } from './curvedPreview';
 import { flatVectorGeometry } from './core/vectorGeometry';
 import { createStockMaterial, type StockMaterial } from './materials';
+import { defaultPlywoodSettings, type PlywoodSettings } from './plywood';
 import type { Surface } from './core/simulate';
 
 export class Preview3D {
@@ -16,7 +17,7 @@ export class Preview3D {
   private resizeObserver: ResizeObserver;
   private frame = 0;
   private frameCounter = 0;
-  private curvedState: { artwork: Artwork; project: Project; compiled: CompiledOperation; stock: StockMaterial; density: number; group: THREE.Group } | null = null;
+  private curvedState: { artwork: Artwork; project: Project; compiled: CompiledOperation; stock: StockMaterial; plywood: PlywoodSettings; density: number; group: THREE.Group } | null = null;
   private vectorMask: {
     project: Project;
     artwork: Artwork;
@@ -68,10 +69,11 @@ export class Preview3D {
     this.camera.updateProjectionMatrix();
   }
 
-  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf', artwork: Artwork | null = null): void {
+  setSurface(project: Project, surface: Surface, compiled: CompiledOperation[] = [], stock: StockMaterial = 'mdf', artwork: Artwork | null = null, plywood: PlywoodSettings = defaultPlywoodSettings): void {
     this.vectorMask = null;
     this.curvedState = null;
     this.host.dataset.previewMode = 'heightfield';
+    this.host.dataset.stockMaterial = stock;
     this.host.dataset.previewTopology = 'legacy';
     if (this.model) {
       this.scene.remove(this.model);
@@ -84,8 +86,8 @@ export class Preview3D {
       });
     }
     this.model = new THREE.Group();
-    const material = createStockMaterial(stock);
-    const sideMaterial = createStockMaterial(stock, true);
+    const material = createStockMaterial(stock, false, plywood);
+    const sideMaterial = createStockMaterial(stock, true, plywood);
     // SVG flat-endmill engravings are exact cutter-swept polygons with explicit
     // vertical walls, not a sampled heightfield. The cutter circumference alone
     // is tessellated, with <= 0.06 mm nominal chord spacing.
@@ -93,9 +95,10 @@ export class Preview3D {
       (compiled[0]!.operation.tool === 'vbit' || compiled[0]!.operation.tool === 'ball');
     if (curved && artwork) {
       const request = this.projectedPixelsPerMm();
-      const result = makeCurvedPreview(project, artwork, compiled[0]!, stock, request);
+      const result = makeCurvedPreview(project, artwork, compiled[0]!, stock, request, plywood);
       this.model.add(result.group);
       this.curvedState = { artwork, project: { ...project }, compiled: compiled[0]!, stock,
+        plywood: { ...plywood, layerThicknesses: [...plywood.layerThicknesses] },
         density: result.density, group: result.group };
       this.host.dataset.previewMode = 'native-svg-curved';
       this.host.dataset.previewTopology = 'single-indexed-stock';
@@ -114,8 +117,8 @@ export class Preview3D {
           this.camera.position.distanceTo(this.controls.target) /
           Math.max(1, this.host.clientHeight);
         const masks = makeVectorMasks(artwork, project, compiled[0]!, Math.max(8, 2 / mmPerScreenPixel));
-        const topMaterial = createStockMaterial(stock);
-        const floorMaterial = createStockMaterial(stock);
+        const topMaterial = createStockMaterial(stock, false, plywood);
+        const floorMaterial = createStockMaterial(stock, false, plywood);
         for (const [mat, texture] of [[topMaterial, masks.top], [floorMaterial, masks.floor]] as const) {
           mat.alphaMap = texture;
           mat.alphaTest = 0.01;
@@ -254,7 +257,7 @@ export class Preview3D {
     const limit = 2560 / Math.max(state.project.width, state.project.height);
     if (desired <= state.density * 1.5 || state.density >= limit * 0.98) return;
     const replacement = makeCurvedPreview(state.project, state.artwork, state.compiled,
-      state.stock, desired);
+      state.stock, desired, state.plywood);
     this.model?.remove(state.group);
     state.group.traverse(obj => {
       if (obj instanceof THREE.Mesh) {
