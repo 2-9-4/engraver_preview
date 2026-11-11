@@ -52,6 +52,10 @@ export function generateGcode(project: Project, machine: Machine, compiled: Comp
     '; Controller: ' + machine.controller,
     'G90',
   ];
+  if (op.mode === 'vector' && op.centerlineFilled) {
+    lines.push('; WARNING: SVG filled contours were approximately reduced to centerlines.');
+    lines.push('; Inspect branches, small gaps and reconstructed strokes before machining.');
+  }
   if (machine.controller !== 'klipper') lines.push('G21');
   if (machine.controller === 'linuxcnc') lines.push('G17', 'G94', 'G40');
   lines.push('G0 Z' + fmt(machine.safeZ) + ' F' + fmt(machine.travelFeed));
