@@ -1,4 +1,5 @@
 import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+import { LineCurve } from 'three';
 import type { Artwork, VectorStroke } from '../types';
 
 const svgNS = 'http://www.w3.org/2000/svg';
@@ -77,8 +78,20 @@ function extractStrokes(root: SVGSVGElement, width: number, height: number): Vec
       const paths = new SVGLoader().parse(source).paths;
       const transform: [number, number, number, number, number, number] =
         [ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f];
-      const curves = paths.flatMap(path => path.subPaths.map(subpath =>
-        subpath.curves.map(curve => ({ curve, ctm: transform })))).filter(subpath => subpath.length);
+      const curves = paths.flatMap(path => path.subPaths.map(subpath => {
+        // SVGLoader marks 'Z'/'z' and <polygon> with autoClose but deliberately
+        // DOES NOT insert the closing segment into subpath.curves. If we drop
+        // that bit, the actual CAM path AND the preview omit one whole edge.
+        // Add the exact straight closing line, not sampled points.
+        const segments = [...subpath.curves];
+        if (subpath.autoClose && segments.length) {
+          const first = segments[0]!.getPoint(0);
+          const last = segments[segments.length - 1]!.getPoint(1);
+          if (first.distanceToSquared(last) > 1e-16)
+            segments.push(new LineCurve(last.clone(), first.clone()));
+        }
+        return segments.map(curve => ({ curve, ctm: transform }));
+      })).filter(subpath => subpath.length);
       if (curves.length) result.push({ color, curves, points: [] });
     }
   } finally {

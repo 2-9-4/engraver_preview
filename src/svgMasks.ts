@@ -31,13 +31,14 @@ export function svgPathForOperation(artwork: Artwork, project: Project, compiled
     if (!stroke.curves) throw new Error('SVG primitive data unavailable for vector preview');
     for (const subpath of stroke.curves) {
       if (!subpath.length) continue;
+      // Keep EACH native SVG subpath as ONE continuous Path2D. Previously
+      // every constituent segment was a separate stroked Path2D with round
+      // caps. That destroyed SVG joins and could never represent Z closure.
+      const one = new Path2D();
+      const first = subpath[0]!.curve.getPoint(0);
+      one.moveTo(first.x, first.y);
       for (const segment of subpath) {
-        const ctm = segment.ctm;
         const curve = segment.curve;
-        const one = new Path2D();
-        const from = curve.getPoint(0);
-        one.moveTo(from.x, from.y);
-        // This is the actual SVG primitive, not a point-sampled approximation.
         if (curve instanceof THREE.LineCurve) {
           one.lineTo(curve.v2.x, curve.v2.y);
         } else if (curve instanceof THREE.QuadraticBezierCurve) {
@@ -47,25 +48,23 @@ export function svgPathForOperation(artwork: Artwork, project: Project, compiled
             curve.v1.x, curve.v1.y, curve.v2.x, curve.v2.y, curve.v3.x, curve.v3.y
           );
         } else if (curve instanceof THREE.EllipseCurve) {
-          // Elliptical arcs are retained as native analytic ellipse paths.
-          // Their original affine transform is applied when adding the path.
           one.ellipse(curve.aX, curve.aY, Math.abs(curve.xRadius), Math.abs(curve.yRadius),
             curve.aRotation, curve.aStartAngle, curve.aEndAngle, curve.aClockwise);
         } else {
           throw new Error('Unsupported parametric curve: ' + curve.type);
         }
-        // Convert from SVG's local XY space to machine XY. The final Y flip
-        // also accounts for Three.js' horizontal PlaneGeometry UV orientation.
-        // Importantly, Path2D.addPath transforms the *curve*, after which the
-        // cutter stroke is applied in isotropic millimeter coordinates.
-        const matrix = new DOMMatrix([
-          pxPerMm * scale * ctm[0], -pxPerMm * scale * ctm[1],
-          pxPerMm * scale * ctm[2], -pxPerMm * scale * ctm[3],
-          pxPerMm * (offsetX + scale * ctm[4]),
-          pxPerMm * (project.height - offsetY - scale * ctm[5]),
-        ]);
-        result.addPath(one, matrix);
       }
+      const last = subpath[subpath.length - 1]!.curve.getPoint(1);
+      if (first.distanceToSquared(last) <= 1e-16) one.closePath();
+      const ctm = subpath[0]!.ctm;
+      // Transform the entire continuous vector curve into stock coordinates.
+      const matrix = new DOMMatrix([
+        pxPerMm * scale * ctm[0], -pxPerMm * scale * ctm[1],
+        pxPerMm * scale * ctm[2], -pxPerMm * scale * ctm[3],
+        pxPerMm * (offsetX + scale * ctm[4]),
+        pxPerMm * (project.height - offsetY - scale * ctm[5]),
+      ]);
+      result.addPath(one, matrix);
     }
   }
   return result;
