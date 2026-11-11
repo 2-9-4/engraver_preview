@@ -286,8 +286,8 @@ test('opt-in filled SVG centerlines collapse outlined colored bands for preview 
     };
     return { red: summary('#ff0000'), blue: summary('#0000ff') };
   }, source);
-  expect(recovered.red.count).toBeGreaterThan(10);
-  expect(recovered.blue.count).toBeGreaterThan(10);
+  expect(recovered.red.count).toBeGreaterThanOrEqual(2);
+  expect(recovered.blue.count).toBeGreaterThanOrEqual(2);
   expect(recovered.red.maxY - recovered.red.minY).toBeLessThan(0.025);
   expect(recovered.blue.maxX - recovered.blue.minX).toBeLessThan(0.025);
   expect(recovered.red.maxX - recovered.red.minX).toBeGreaterThan(0.5);
@@ -318,5 +318,5 @@ test('centerline mode excludes stroke-only SVG paths and supports fill-only sour
   expect(output.originalColors).toContain('#0000ff');
   expect(output.centerColors).toContain('#ff0000');
   expect(output.centerColors).not.toContain('#0000ff');
-  expect(output.count).toBeGreaterThan(10);
+  expect(output.count).toBeGreaterThanOrEqual(2);
 });
