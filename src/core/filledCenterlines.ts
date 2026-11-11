@@ -165,8 +165,8 @@ export function traceSkeleton(mask: Uint8Array, width: number, height: number): 
     const indices = [start];
     let from = start, to = next, dir = direction;
     while (true) {
-      visited[from] |= (1 << dir);
-      visited[to] |= (1 << ((dir + 4) % 8));
+      visited[from] = visited[from]! | (1 << dir);
+      visited[to] = visited[to]! | (1 << ((dir + 4) % 8));
       indices.push(to);
       if (to === start || degree[to] !== 2) break;
       const onward = neighboring(mask, width, height, to)
