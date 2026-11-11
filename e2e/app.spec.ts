@@ -320,3 +320,26 @@ test('centerline mode excludes stroke-only SVG paths and supports fill-only sour
   expect(output.centerColors).not.toContain('#0000ff');
   expect(output.count).toBeGreaterThanOrEqual(2);
 });
+
+
+test('compound SVG fill holes produce one middle ring, not inner/outer boundary passes', async ({ page }) => {
+  await page.goto('/');
+  const recovered = await page.evaluate(async () => {
+    const { loadArtwork } = await import('/src/core/svg.ts');
+    const { recoverFilledSvgCenterlines } = await import('/src/core/filledCenterlines.ts');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">' +
+      '<path fill="#ff0000" fill-rule="evenodd" stroke="none" ' +
+      'd="M300 300 H724 V724 H300 Z M314 314 H710 V710 H314 Z"/></svg>';
+    const artwork = await loadArtwork(new File([svg], 'ring.svg', {type:'image/svg+xml'}));
+    return recoverFilledSvgCenterlines(artwork).strokes.map(s => ({
+      color: s.color, count: s.points.length,
+      closed: Math.hypot(s.points[0]!.x - s.points.at(-1)!.x,
+        s.points[0]!.y - s.points.at(-1)!.y) < 0.001,
+      minX: Math.min(...s.points.map(p => p.x)),
+      maxX: Math.max(...s.points.map(p => p.x)),
+    }));
+  });
+  expect(recovered.some(r => r.closed && r.count >= 4)).toBe(true);
+  expect(recovered.every(r => r.color === '#ff0000')).toBe(true);
+  expect(recovered.some(r => r.maxX - r.minX > 0.35)).toBe(true);
+});
