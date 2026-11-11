@@ -200,8 +200,13 @@ test('painted plywood exposes editable veneer, ply sequence and paint over all S
   await select.selectOption('plywood');
   await expect(panel).toBeVisible();
   await expect(paintPanel).toBeHidden();
+  await expect(page.locator('#viewport')).toHaveAttribute('data-stock-material', 'plywood', { timeout: 30000 });
+  const plainPlywoodImage = await page.locator('#viewport canvas').screenshot();
   await select.selectOption('painted-plywood');
   await expect(paintPanel).toBeVisible();
+  await expect(page.locator('#viewport')).toHaveAttribute('data-stock-material', 'painted-plywood', { timeout: 30000 });
+  const paintedPlywoodImage = await page.locator('#viewport canvas').screenshot();
+  expect(paintedPlywoodImage.equals(plainPlywoodImage)).toBe(false);
 
   await page.locator('#plywood-top-veneer').fill('0.45');
   await page.locator('#plywood-top-veneer').blur();
